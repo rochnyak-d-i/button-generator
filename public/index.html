@@ -10,7 +10,33 @@
 	<link rel="stylesheet" href="css/main.min.css">
 </head>
 <body>
-	
+	<h1>CSS3 BUTTON GENERATOR</h1>
+	<div id="content">
+		<div class="options">
+			<h2>OPTIONS</h2>
+			<div class="option">
+				<div class="option__name">Text</div>
+				<div class="option__value">
+					<input type="text" placeholder="button text" />
+				</div>
+			</div>
+		</div>
+		<div class="result">
+			<h2>RESULT</h2>
+			<button id="result-button"></button>
+		</div>
+
+		<div class="result-source">
+			<textarea name="html-code" id="html-code"></textarea>
+			<textarea name="css-code" id="css-code"></textarea>
+		</div>
+
+		<div class="form-send">
+			<input class="form-send__email" type="text" name="email" placeholder="your email" />
+			<input class="form-send__button" type="submit" value="Submit" />
+		</div>
+	</div>
+
 	<script src="js/main.js"></script>
 </body>
 </html>
