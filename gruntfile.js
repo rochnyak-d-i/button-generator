@@ -1,4 +1,11 @@
 module.exports = function(grunt) {
+	var
+		uiThemeName = 'start'
+		, uiPath = './dev/components/jquery-ui/'
+		, uiScriptsPath = uiPath + 'ui/'
+		, uiStylePath = uiPath + 'themes/' + uiThemeName + '/'
+	;
+
 	grunt.initConfig({
 		concat: {
 			options: {
@@ -6,7 +13,14 @@ module.exports = function(grunt) {
 				stripBanners: true
 			},
 			dist: {
-				src: './dev/js/*.js',
+				src: [
+					'./dev/components/jquery/dist/jquery.js'
+					, uiScriptsPath + 'core.js'
+					, uiScriptsPath + 'widget.js'
+					, uiScriptsPath + 'mouse.js'
+					, uiScriptsPath + 'slider.js'
+					, './dev/js/*.js'
+				],
 				dest: './public/js/main.js'
 			}
 		},
@@ -23,8 +37,23 @@ module.exports = function(grunt) {
 				keepSpecialComments: 0
 			},
 			dist: {
-				src: './dev/css/*.css',
+				src: [
+					uiStylePath + 'core.css'
+					, uiStylePath + 'slider.css'
+					, './dev/css/*.css'
+				],
 				dest: './public/css/main.min.css'
+			}
+		},
+
+		copy: {
+			theme_imgs: {
+				flatten: true,
+				filter: 'isFile',
+				expand: true,
+				cwd: uiStylePath + 'images/',
+				src: '**',
+				dest: './public/css/images/'
 			}
 		},
 
@@ -35,7 +64,7 @@ module.exports = function(grunt) {
 			},
 			styles: {
 				files: './dev/css/*.css',
-				tasks: ['cssmin']
+				tasks: ['cssmin', 'copy:theme_imgs']
 			}
 		}
 	});
@@ -43,7 +72,8 @@ module.exports = function(grunt) {
 	grunt.loadNpmTasks('grunt-contrib-cssmin');
 	grunt.loadNpmTasks('grunt-contrib-uglify');
 	grunt.loadNpmTasks('grunt-contrib-concat');
+	grunt.loadNpmTasks('grunt-contrib-copy');
 	grunt.loadNpmTasks('grunt-contrib-watch');
 
-	grunt.registerTask('default', ['concat', 'uglify', 'cssmin']);
+	grunt.registerTask('default', ['concat', 'uglify', 'cssmin', 'copy']);
 }
