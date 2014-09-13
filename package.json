@@ -1,0 +1,12 @@
+{
+  "name": "button_generator",
+  "author": "Rochnyak Dmitriy Igorevich",
+  "version": "0.0.1",
+  "devDependencies": {
+    "grunt": "~0.4.5",
+    "grunt-contrib-concat": "latest",
+    "grunt-contrib-uglify": "latest",
+    "grunt-contrib-cssmin": "latest",
+    "grunt-contrib-watch": "latest"
+  }
+}
