@@ -10,31 +10,40 @@
 	<link rel="stylesheet" href="css/main.min.css">
 </head>
 <body>
-	<h1>CSS3 BUTTON GENERATOR</h1>
 	<div id="content">
-		<div class="options">
-			<h2>OPTIONS</h2>
-			<div class="option">
-				<div class="option__name">Text</div>
-				<div class="option__value">
-					<input type="text" placeholder="button text" />
+		<h1>CSS3 BUTTON GENERATOR</h1>
+		<div class="row generator">
+			<div class="options">
+				<h2>OPTIONS</h2>
+				<div class="option">
+					<div class="option__name">Border-radius</div>
+					<div class="option__value">
+						<div class="slider-range"></div>
+					</div>
+				</div>
+				<div class="option">
+					<div class="option__name">Text</div>
+					<div class="option__value">
+						<input type="text" />
+					</div>
 				</div>
 			</div>
-		</div>
-		<div class="result">
-			<h2>RESULT</h2>
-			<button id="result-button"></button>
-		</div>
-
-		<div class="result-source">
-			<textarea name="html-code" id="html-code"></textarea>
-			<textarea name="css-code" id="css-code"></textarea>
+			<div class="result">
+				<h2>RESULT</h2>
+				<button id="result-button">Text</button>
+			</div>
 		</div>
 
-		<div class="form-send">
-			<input class="form-send__email" type="text" name="email" placeholder="your email" />
+		<form class="form-send">
+			<div class="row">
+				<textarea readonly name="html-code" id="html-code" placeholder="HTML code"></textarea>
+				<textarea readonly name="css-code" id="css-code" placeholder="CSS code"></textarea>
+			</div>
+			<div class="row">
+				<input class="form-send__email" type="text" name="email" placeholder="your email" />
+			</div>
 			<input class="form-send__button" type="submit" value="Submit" />
-		</div>
+		</form>
 	</div>
 
 	<script src="js/main.js"></script>

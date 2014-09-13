@@ -38,9 +38,8 @@ module.exports = function(grunt) {
 			},
 			dist: {
 				src: [
-					uiStylePath + 'core.css'
-					, uiStylePath + 'slider.css'
-					, './dev/css/*.css'
+					'./dev/css/normalize.css'
+					, './dev/css/main.css'
 				],
 				dest: './public/css/main.min.css'
 			}
@@ -64,7 +63,7 @@ module.exports = function(grunt) {
 			},
 			styles: {
 				files: './dev/css/*.css',
-				tasks: ['cssmin', 'copy:theme_imgs']
+				tasks: ['cssmin']
 			}
 		}
 	});
