@@ -1,9 +1,8 @@
 module.exports = function(grunt) {
 	var
-		uiThemeName = 'start'
-		, uiPath = './dev/components/jquery-ui/'
+		uiPath = './dev/components/jquery-ui/'
 		, uiScriptsPath = uiPath + 'ui/'
-		, uiStylePath = uiPath + 'themes/' + uiThemeName + '/'
+		, uiStylePath = uiPath + 'themes/base/'
 	;
 
 	grunt.initConfig({
@@ -39,6 +38,9 @@ module.exports = function(grunt) {
 			dist: {
 				src: [
 					'./dev/css/normalize.css'
+					, uiStylePath + 'core.css'
+					, uiStylePath + 'theme.css'
+					, uiStylePath + 'slider.css'
 					, './dev/css/main.css'
 				],
 				dest: './public/css/main.min.css'
@@ -53,6 +55,14 @@ module.exports = function(grunt) {
 				cwd: uiStylePath + 'images/',
 				src: '**',
 				dest: './public/css/images/'
+			},
+			fonts: {
+				flatten: true,
+				filter: 'isFile',
+				expand: true,
+				cwd: './dev/fonts/',
+				src: '**',
+				dest: './public/css/fonts/'
 			}
 		},
 
