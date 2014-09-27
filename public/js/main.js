@@ -10925,22 +10925,353 @@ return $.widget( "ui.slider", $.ui.mouse, {
 
 }));
 ;
+$.extend({
+    keys:    function(obj){
+        var a = [];
+        $.each(obj, function(k){ a.push(k) });
+        return a;
+    }
+});;
+var Option = (function() {
+    var _Option;
+
+    function getValue(value) {
+        if($.isNumeric(value)) {
+            value += 'px';
+        } else if($.isArray(value)) {
+            value = value.join('px ');
+        } else if($.isPlainObject(value)) {
+            $.each(value, function(key, val) {
+                value += getValue(val) + ' ';
+            });
+        }
+
+        return value;
+    }
+
+    _Option = function(name, label, prefix, value) {
+        this.name = name;
+        this.prefixes = prefix ? prefix : false;
+        this.defaultValue = this.value = value || '';
+        this.label = label || this.name;
+        this.type = (this.name === 'text') ? 'text' : 'style';
+    }
+    _Option.prototype.getValue = function() {
+        var value = this.value;
+
+        if(this.type !== 'text') {
+            value = getValue(value);
+        }
+
+        return value;
+    }
+    _Option.prototype.setValue = function(value) {
+        this.value = value;
+    }
+    _Option.prototype.getStyle = function() {
+        if(this.type !== 'style')
+            return;
+
+        var
+            style = ''
+            , rule = ''
+        ;
+        style = rule = this.name + ': ' + this.getValue() + ';\r\n';
+
+        if(this.prefix && $.isArray(this.prefix)) {
+            $.each(function(index, val) {
+                style += val + '-' + rule;
+            });
+        }
+
+        return style;
+    }
+
+    return _Option;
+})();;
+var viewFactory = (function() {
+    var
+        views = {}
+        , cache = {}
+        , template
+        , nameMap = {
+            'border-radius': 'stylePx'
+            , 'border-width': 'stylePx'
+            , 'border-color': 'color'
+            , 'background': 'color'
+        }
+    ;
+
+    template = '<div class="option">' +
+                    '<div class="option__name"></div>' +
+                    '<div class="option__value"></div>' +
+                '</div>';
+
+    views.text = {
+        setEvents: function() {
+            var self = this;
+
+            self.element.on('keyup', $.proxy(self.changeInput, self));
+        },
+        changeInput: function(ev) {
+            var
+                self = this
+                , value = $.trim(self.element.val())
+            ;
+
+            if(!value) {
+                self.element.val(self.option.defaultValue);
+                self.element.trigger('keyup');
+            } else {
+                self.option.setValue(value)
+            }
+
+            self.changeData();
+        },
+        create: function() {
+            var self = this;
+
+            self.element = $('<input />');
+            self.element.attr({
+                name: self.option.name,
+                value: self.option.value
+            });
+        }
+    }
+
+    views.stylePx = {
+        setEvents: function() {
+            var self = this;
+
+            self.element.on("slide", $.proxy(self.changeSlide, self));
+        },
+        changeSlide: function(ev, ui) {
+            var
+                self = this
+                //, value = self.element.slider( "option", "value" )
+                , value = ui.value
+            ;
+
+            self.option.setValue(value)
+            self.changeData();
+        },
+        create: function() {
+            var
+                self = this
+                , sliderOpt = {
+                    orientation: "horizontal",
+                    range: "min",
+                    value: self.option.value
+                }
+            ;
+            if(self.option.max) {
+                sliderOpt.max = self.option.max;
+            }
+
+            self.element = $('<div>').slider(sliderOpt);
+        }
+    }
+
+    views.color = {
+        setEvents: function() {
+            var self = this;
+        },
+        create: function() {
+            var self = this;
+        }
+    }
+
+    views['box-shadow'] = {
+        setEvents: function() {
+            var self = this;
+        },
+        create: function() {
+            var self = this;
+        }
+    }
+
+    return function(name) {
+        name = nameMap[name] ? nameMap[name] : name;
+
+        if(!views[name]) {
+            throw new Error('представление для ' + name + ' не определено');
+        }
+
+        if(cache[name]) {
+            return cache[name];
+        }
+
+        var viewOption = function(option) {
+            var self = this;
+
+            if(!(option instanceof Option)) {
+                throw new Error('option должен быть объектом класса Option');
+            }
+
+            self.option = option;
+            self.element = $();
+            self.block = $(self.template);
+
+            self.create();
+            self.setEvents();
+        }
+
+        viewOption.prototype.template = template;
+
+        viewOption.prototype.render = function(parent) {
+            var self = this;
+            parent = (parent && $(parent).length) ? parent : $('body');
+
+            self.block.find('.option__name').text(self.option.label);
+            self.block.find('.option__value').append(self.element);
+
+            parent.append(self.block);
+        }
+
+        viewOption.prototype.create = function() {
+            throw new Error('метод create у представления ' + name + ' не определен');
+        }
+
+        viewOption.prototype.setEvents = function() {
+            throw new Error('метод setEvents у представления ' + name + ' не определен');
+        }
+
+        viewOption.prototype.changeData = function() {
+            var self = this;
+            self.element.trigger('change_value', self.option);
+        }
+
+        viewOption.prototype.setUpListener = function(callback) {
+            this.element.on('change_value', callback);
+        }
+
+        $.each(views[name], function(name, value) {
+            viewOption.prototype[name] = value;
+        });
+
+        return cache[name] = viewOption;
+    }
+})();;
+var
+    listOptions = {}
+    , Options
+;
+
+listOptions.text = new Option('text', 'Текст', false, 'button');
+
+listOptions.bRadius = new Option('border-radius', 'Закругленность', false, 5);
+listOptions.bRadius.max = 20;
+
+listOptions.bSize = new Option('border-width', 'Толщина рамки', false, 1);
+listOptions.bSize.max = 50;
+
+listOptions.bColor = new Option('border-color', 'Цвет рамки', false, '#000');
+listOptions.color = new Option('color', 'Цвет ссылки', false, '#fff');
+listOptions.background = new Option('background', 'Цвет фона', false, '#f7f7f7');
+
+listOptions.bShadow = new Option('box-shadow', 'Тень', ['webkit', 'moz'], {
+    inset: '',
+    x: 0,
+    y: 0,
+    blur: 0,
+    spread: 0,
+    color: '#fff'
+});
+
+Options = (function() {
+    var options = {};
+
+    function register(oOption) {
+        if(oOption instanceof Option) {
+            var name = oOption.name;
+            options[name] = oOption;
+        }
+    }
+
+    function initialize(drawing, oElements) {
+        var
+            supports = getSupportOptions()
+            , button = oElements.resultButton.get(0)
+            , butId = oElements.resultButton.attr('id')
+        ;
+
+        function onChangeText(ev, option) {
+            oElements.resultButton.text(option.value);
+            oElements.htmlCode.val(button.outerHTML);
+        }
+
+        function onChangeStyle(ev, option) {
+            var style;
+
+            oElements.resultButton.css(option.name, option.getValue());
+
+            style = '#' + butId + ' {\n';
+            style += oElements.resultButton.attr('style').replace(/; /g, ';\n');
+            style += '\n}';
+            oElements.cssCode.val(style);
+        }
+
+        $.each(supports, function(index, val) {
+            if(drawing.indexOf(val) === -1)
+                return;
+
+            var
+                viewClass = viewFactory(val)
+                , view = new viewClass(options[val])
+            ;
+
+            view.render(oElements.optionsBlock);
+
+            if(options[val].type === 'text') {
+                view.setUpListener(onChangeText);
+            } else {
+                view.setUpListener(onChangeStyle);
+            }
+
+            view.changeData();
+        });
+    }
+
+    function getSupportOptions() {
+        return $.keys(options);
+    }
+
+    return {
+        registerOptions: function(options) {
+            $.each(options, function(keyName, oOption) {
+                register(oOption);
+            });
+        },
+        registerOption: register,
+        getSupportOptions: getSupportOptions,
+        initialize: initialize
+    }
+})();
+
+Options.registerOptions(listOptions);
+
+
+
+
+
+
+
+
+
+
+
+;
 function ButtonGenerator($, Options) {
     var
         defaultSelectors = {
-            resultButton: '#result-button',
-            formSend: '.form-send',
-            htmlCode: '#html-code',
-            cssCode: '#css-code',
-            emailInput: '.form-send__email'
+            resultButton: '#button'
+            , formSend: '.form-send'
+            , htmlCode: '#html-code'
+            , cssCode: '#css-code'
+            , emailInput: '.form-send__email'
+            , optionsBlock: '.options'
         }
-        , elements = {
-            resultButton: null,
-            formSend: null,
-            htmlCode: null,
-            cssCode: null,
-            emailInput: null
-        }
+        , elements = {}
     ;
 
     function setElements(oSelectors) {
@@ -10974,132 +11305,4 @@ $(function() {
     App = ButtonGenerator(jQuery, Options);
 
     App.run(settings);
-})
-
-
-$(function() {
-    $( ".slider-range" ).slider({
-      orientation: "horizontal",
-      range: "min",
-      max: 255,
-      value: 127
-    });
-});;
-var Option;
-
-function getValue(value) {
-    if($.isNumeric(value)) {
-        value += 'px';
-    } else if($.isArray(value)) {
-        value = value.join('px ');
-    } else if($.isPlainObject(value)) {
-        $.each(value, function(key, val) {
-            value += getValue(val) + ' ';
-        });
-    }
-
-    return value;
-}
-
-Option = function(name, prefix, value) {
-    this.name = name;
-    this.prefixes = prefix ? prefix : false;
-    this.value = value || '';
-    this.type = (this.name === 'text') ? 'text' : 'style';
-}
-Option.prototype.getValue = function() {
-    var value = this.value;
-
-    if(this.type !== 'text') {
-        value = getValue(value);
-    }
-
-    return value;
-}
-Option.prototype.setValue = function(value) {
-    this.value = value;
-}
-Option.prototype.getStyle = function() {
-    if(this.type !== 'style')
-        return;
-
-    var
-        style = ''
-        , rule = ''
-    ;
-    style = rule = this.name + ': ' + this.getValue() + ';\r\n';
-
-    if(this.prefix && $.isArray(this.prefix)) {
-        $.each(function(index, val) {
-            style += val + '-' + rule;
-        });
-    }
-
-    return style;
-};
-var
-    listOptions = {}
-    , Options
-;
-
-Options = (function() {
-    var
-        supports = []
-        , options = {}
-    ;
-
-    function register(oOption) {
-        if(oOption instanceof Option) {
-            var name = oOption.name;
-            options[name] = oOption;
-            supports.push(name);
-        }
-    }
-
-    function initialize(drawing, oElements) {
-        $.each(supports, function(index, val) {
-            if(drawing.indexOf(val) === -1)
-                return;
-            //options[val]
-        });
-    }
-
-    return {
-        registerOptions: function(options) {
-            $.each(options, function(keyName, oOption) {
-                register(oOption);
-            });
-        },
-        registerOption: register,
-        getSupportOptions: function() {
-            return supports;
-        },
-        initialize: initialize
-    }
-})();
-
-listOptions.text = new Option('text');
-listOptions.bRadius = new Option('border-radius', false, 0);
-listOptions.bSize = new Option('border-width', false, 1);
-listOptions.bShadow = new Option('box-shadow', ['webkit', 'moz'], {
-    inset: '',
-    x: 0,
-    y: 0,
-    blur: 0,
-    spread: 0,
-    color: '#fff'
 });
-//BoxShadow.getStyle = function() {filter}
-
-Options.registerOptions(listOptions);
-
-
-
-
-
-
-
-
-
-
-

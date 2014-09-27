@@ -18,12 +18,16 @@ module.exports = function(grunt) {
 					, uiScriptsPath + 'widget.js'
 					, uiScriptsPath + 'mouse.js'
 					, uiScriptsPath + 'slider.js'
-					, './dev/js/*.js'
+                    , './dev/js/custom.js'
+                    , './dev/js/option.js'
+                    , './dev/js/viewOption.js'
+                    , './dev/js/options.js'
+					, './dev/js/main.js'
 				],
 				dest: './public/js/main.js'
 			}
 		},
-		
+
 		uglify: {
 			dist: {
 				src: './public/js/main.js',
