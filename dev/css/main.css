@@ -99,6 +99,13 @@ h2 {
     padding: 0 4%;
 }
 
+.option__value__sub-name {
+    margin-bottom: 10px;
+}
+.option__value__sub-value {
+    margin-bottom: 20px;
+}
+
 .options:after {
     content: '';
     display: block;

@@ -11,12 +11,20 @@ function ButtonGenerator($, Options) {
         , elements = {}
     ;
 
+    /**
+     * кеширует элементы приложения
+     * @param {Object} oSelectors селекторы для элементов
+     */
     function setElements(oSelectors) {
         $.each(oSelectors, function(key, val) {
             elements[key] = $(val);
         });
     }
 
+    /**
+     * запуск приложения
+     * @param  {Object} settings настройки приложения
+     */
     function run(settings) {
         settings = settings || {};
         settings.selectors = settings.selectors || {};
