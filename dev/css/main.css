@@ -50,7 +50,7 @@ h2 {
 
 
 #content {
-    width: 960px;
+    max-width: 960px;
     margin: 0 auto;
     padding: 0 0 15px;
 }

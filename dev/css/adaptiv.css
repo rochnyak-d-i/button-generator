@@ -1,0 +1,26 @@
+@media (max-width:768px) {
+    .options, .result {
+        width: 100%;
+        float: none;
+    }
+    .options:after {
+        display: none;
+    }
+}
+
+@media (max-width:400px) {
+    .option {
+        display: block;
+    }
+
+    .option__name {
+        text-align: center;
+        margin: 15px 0;
+    }
+
+    .option__name,
+    .option__value {
+        display: block;
+        width: 100%;
+    }
+}

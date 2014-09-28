@@ -61,6 +61,7 @@ module.exports = function(grunt) {
                     , uiStylePath + 'tooltip.css'
                     , jqCpPath + 'jquery.colorpicker.css'
                     , './dev/css/main.css'
+                    , './dev/css/adaptiv.css'
                 ],
                 dest: './public/css/main.min.css'
             }
