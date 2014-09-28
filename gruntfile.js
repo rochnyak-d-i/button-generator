@@ -110,5 +110,6 @@ module.exports = function(grunt) {
     grunt.loadNpmTasks('grunt-contrib-copy');
     grunt.loadNpmTasks('grunt-contrib-watch');
 
+    grunt.registerTask('js', ['concat', 'uglify']);
     grunt.registerTask('default', ['concat', 'uglify', 'cssmin', 'copy']);
 }

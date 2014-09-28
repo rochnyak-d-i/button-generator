@@ -18752,6 +18752,8 @@ function ButtonGenerator($, Options) {
             , cssCode: '#css-code'
             , emailInput: '.form-send__email'
             , sendButton: '.form-send__button'
+            , errorsBlock: '.form-send__errors'
+            , successBlock: '.form-send__success'
             , optionsBlock: '.options'
         }
         , elements = {}
@@ -18792,14 +18794,25 @@ function ButtonGenerator($, Options) {
         //отправка данных на сервер
         var strData = form.serialize();
         $.ajax({
-            url: form.attr('action'),
-            type: form.attr('method'),
-            data: strData
+            url: form.attr('action')
+            , type: form.attr('method')
+            , dataType: 'json'
+            , data: strData
         })
-        .done(function(msg) {
-            if(msg === "OK"){}else{}
+        .done(function(data, status, xhr) {
+            elements.errorsBlock.empty();
+            elements.successBlock.empty();
+
+            if(data.ERRORS){
+                $.each(data.ERRORS, function(index, error) {
+                    elements.errorsBlock.append($('<p>').text(error));
+                });
+            }else{
+                elements.successBlock.append(data.SUCCESS);
+            }
         })
         .always(function() {
+            form.find('.has-error, .has-success').removeClass('has-error has-success');
             elements.sendButton.prop('disabled', false);
         });
     }

@@ -22,7 +22,11 @@
 			</div>
 		</div>
 
-		<form action='/' method="POST" class="form-send">
+		<form action='/mail.php' method="POST" class="form-send">
+            <div class="row">
+                <div class="form-send__errors"></div>
+                <div class="form-send__success"></div>
+            </div>
 			<div class="row">
 				<textarea readonly name="html-code" id="html-code" placeholder="HTML code"></textarea>
 				<textarea readonly name="css-code" id="css-code" placeholder="CSS code"></textarea>
@@ -34,6 +38,6 @@
 		</form>
 	</div>
 
-	<script src="js/main.js"></script>
+	<script src="js/main.min.js"></script>
 </body>
 </html>
