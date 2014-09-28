@@ -22,7 +22,7 @@ listOptions.bStyle = new Option(
 );
 
 listOptions.bColor = new Option('border-color', 'Цвет рамки', false, '#000');
-listOptions.color = new Option('color', 'Цвет ссылки', false, '#000');
+listOptions.color = new Option('color', 'Цвет текста', false, '#000');
 listOptions.background = new Option('background-color', 'Цвет фона', false, '#fff');
 
 listOptions.bShadow = new Option('box-shadow', 'Тень', ['webkit', 'moz'], {

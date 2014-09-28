@@ -6,9 +6,11 @@ function ButtonGenerator($, Options) {
             , htmlCode: '#html-code'
             , cssCode: '#css-code'
             , emailInput: '.form-send__email'
+            , sendButton: '.form-send__button'
             , optionsBlock: '.options'
         }
         , elements = {}
+        , patternEmail = /^\w+@[a-zA-Z_]+?\.[a-zA-Z]{2,3}$/
     ;
 
     /**
@@ -19,6 +21,92 @@ function ButtonGenerator($, Options) {
         $.each(oSelectors, function(key, val) {
             elements[key] = $(val);
         });
+    }
+
+    /**
+     * инициализация формы отправки
+     */
+    function initForm() {
+        elements.formSend.on('submit', sendForm);
+    }
+
+    /**
+     * событие отправки формы
+     * @param  {Event} ev
+     */
+    function sendForm(ev) {
+        ev.preventDefault();
+
+        var form = $(this);
+
+        if(!validateForm())
+            return false;
+
+        elements.sendButton.prop('disabled', true);
+
+        //отправка данных на сервер
+        var strData = form.serialize();
+        $.ajax({
+            url: form.attr('action'),
+            type: form.attr('method'),
+            data: strData
+        })
+        .done(function(msg) {
+            if(msg === "OK"){}else{}
+        })
+        .always(function() {
+            elements.sendButton.prop('disabled', false);
+        });
+    }
+
+    /**
+     * валидация формы
+     */
+    function validateForm() {
+        var valid = true;
+
+        $.each([elements.emailInput, elements.htmlCode, elements.cssCode], function(index, input) {
+            var
+                val = input.val()
+                , errMsg = '';
+            ;
+
+            if(val.length === 0) {
+                errMsg = 'Поле не должно быть пустым';
+            }
+            if(input.is(elements.emailInput) && !patternEmail.test(val)) {
+                errMsg = 'Не валидный email';
+            }
+
+            if(errMsg.length !== 0) {
+                //навешивание тултипа и сразу его открытие
+                input.tooltip({
+                    items: input
+                    , show: "fold"
+                    , content: errMsg
+                    , position: { my: "left", at: "right" }
+                    , create: function() {
+                        input.addClass('has-error').removeClass('has-success');
+                        input.one('keydown', removeError);
+                    }
+                }).tooltip('open');
+
+                valid = false;
+            } else {
+                input.removeAttr('title');
+                input.addClass('has-success').removeClass('has-error');
+            }
+        });
+
+        return valid;
+    }
+
+    /**
+     * удаляет тултип у поля не прошедшего валидацию
+     * @param  {Event} ev
+     */
+    function removeError(ev) {
+        $(this).tooltip('destroy').removeClass('has-error');
     }
 
     /**
@@ -36,10 +124,12 @@ function ButtonGenerator($, Options) {
             settings.draw : Options.getSupportOptions();
 
         Options.initialize(settings.draw, elements);
+        initForm();
     }
 
     return {
         run: run
+        , stop: function() {}
     }
 }
 

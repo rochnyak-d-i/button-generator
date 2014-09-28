@@ -24,6 +24,7 @@ module.exports = function(grunt) {
                     , uiScriptsPath + 'resizable.js'
                     , uiScriptsPath + 'button.js'
                     , uiScriptsPath + 'dialog.js'
+                    , uiScriptsPath + 'tooltip.js'
                     , uiScriptsPath + 'slider.js'
                     , jqCpPath + 'jquery.colorpicker.js'
                     , './dev/js/custom.js'
@@ -57,6 +58,7 @@ module.exports = function(grunt) {
                     , uiStylePath + 'button.css'
                     , uiStylePath + 'dialog.css'
                     , uiStylePath + 'slider.css'
+                    , uiStylePath + 'tooltip.css'
                     , jqCpPath + 'jquery.colorpicker.css'
                     , './dev/css/main.css'
                 ],

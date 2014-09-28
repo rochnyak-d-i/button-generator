@@ -176,6 +176,19 @@ h2 {
     bottom: -2px;
 }
 
+.form-send__button[disabled] {
+    background: #A29D9D;
+    border-color: #A29D9D;
+}
+
+.form-send .has-error {
+    border: 1px solid red;
+}
+
+.form-send .has-success {
+    border: 1px solid green;
+}
+
 .ui-slider .ui-slider-handle {
     border: none;
     width: 23px;
