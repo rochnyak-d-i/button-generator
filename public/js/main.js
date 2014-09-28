@@ -10234,6 +10234,4014 @@ return $.widget("ui.mouse", {
 }));
 ;
 /*!
+ * jQuery UI Position 1.11.1
+ * http://jqueryui.com
+ *
+ * Copyright 2014 jQuery Foundation and other contributors
+ * Released under the MIT license.
+ * http://jquery.org/license
+ *
+ * http://api.jqueryui.com/position/
+ */
+(function( factory ) {
+	if ( typeof define === "function" && define.amd ) {
+
+		// AMD. Register as an anonymous module.
+		define( [ "jquery" ], factory );
+	} else {
+
+		// Browser globals
+		factory( jQuery );
+	}
+}(function( $ ) {
+(function() {
+
+$.ui = $.ui || {};
+
+var cachedScrollbarWidth, supportsOffsetFractions,
+	max = Math.max,
+	abs = Math.abs,
+	round = Math.round,
+	rhorizontal = /left|center|right/,
+	rvertical = /top|center|bottom/,
+	roffset = /[\+\-]\d+(\.[\d]+)?%?/,
+	rposition = /^\w+/,
+	rpercent = /%$/,
+	_position = $.fn.position;
+
+function getOffsets( offsets, width, height ) {
+	return [
+		parseFloat( offsets[ 0 ] ) * ( rpercent.test( offsets[ 0 ] ) ? width / 100 : 1 ),
+		parseFloat( offsets[ 1 ] ) * ( rpercent.test( offsets[ 1 ] ) ? height / 100 : 1 )
+	];
+}
+
+function parseCss( element, property ) {
+	return parseInt( $.css( element, property ), 10 ) || 0;
+}
+
+function getDimensions( elem ) {
+	var raw = elem[0];
+	if ( raw.nodeType === 9 ) {
+		return {
+			width: elem.width(),
+			height: elem.height(),
+			offset: { top: 0, left: 0 }
+		};
+	}
+	if ( $.isWindow( raw ) ) {
+		return {
+			width: elem.width(),
+			height: elem.height(),
+			offset: { top: elem.scrollTop(), left: elem.scrollLeft() }
+		};
+	}
+	if ( raw.preventDefault ) {
+		return {
+			width: 0,
+			height: 0,
+			offset: { top: raw.pageY, left: raw.pageX }
+		};
+	}
+	return {
+		width: elem.outerWidth(),
+		height: elem.outerHeight(),
+		offset: elem.offset()
+	};
+}
+
+$.position = {
+	scrollbarWidth: function() {
+		if ( cachedScrollbarWidth !== undefined ) {
+			return cachedScrollbarWidth;
+		}
+		var w1, w2,
+			div = $( "<div style='display:block;position:absolute;width:50px;height:50px;overflow:hidden;'><div style='height:100px;width:auto;'></div></div>" ),
+			innerDiv = div.children()[0];
+
+		$( "body" ).append( div );
+		w1 = innerDiv.offsetWidth;
+		div.css( "overflow", "scroll" );
+
+		w2 = innerDiv.offsetWidth;
+
+		if ( w1 === w2 ) {
+			w2 = div[0].clientWidth;
+		}
+
+		div.remove();
+
+		return (cachedScrollbarWidth = w1 - w2);
+	},
+	getScrollInfo: function( within ) {
+		var overflowX = within.isWindow || within.isDocument ? "" :
+				within.element.css( "overflow-x" ),
+			overflowY = within.isWindow || within.isDocument ? "" :
+				within.element.css( "overflow-y" ),
+			hasOverflowX = overflowX === "scroll" ||
+				( overflowX === "auto" && within.width < within.element[0].scrollWidth ),
+			hasOverflowY = overflowY === "scroll" ||
+				( overflowY === "auto" && within.height < within.element[0].scrollHeight );
+		return {
+			width: hasOverflowY ? $.position.scrollbarWidth() : 0,
+			height: hasOverflowX ? $.position.scrollbarWidth() : 0
+		};
+	},
+	getWithinInfo: function( element ) {
+		var withinElement = $( element || window ),
+			isWindow = $.isWindow( withinElement[0] ),
+			isDocument = !!withinElement[ 0 ] && withinElement[ 0 ].nodeType === 9;
+		return {
+			element: withinElement,
+			isWindow: isWindow,
+			isDocument: isDocument,
+			offset: withinElement.offset() || { left: 0, top: 0 },
+			scrollLeft: withinElement.scrollLeft(),
+			scrollTop: withinElement.scrollTop(),
+
+			// support: jQuery 1.6.x
+			// jQuery 1.6 doesn't support .outerWidth/Height() on documents or windows
+			width: isWindow || isDocument ? withinElement.width() : withinElement.outerWidth(),
+			height: isWindow || isDocument ? withinElement.height() : withinElement.outerHeight()
+		};
+	}
+};
+
+$.fn.position = function( options ) {
+	if ( !options || !options.of ) {
+		return _position.apply( this, arguments );
+	}
+
+	// make a copy, we don't want to modify arguments
+	options = $.extend( {}, options );
+
+	var atOffset, targetWidth, targetHeight, targetOffset, basePosition, dimensions,
+		target = $( options.of ),
+		within = $.position.getWithinInfo( options.within ),
+		scrollInfo = $.position.getScrollInfo( within ),
+		collision = ( options.collision || "flip" ).split( " " ),
+		offsets = {};
+
+	dimensions = getDimensions( target );
+	if ( target[0].preventDefault ) {
+		// force left top to allow flipping
+		options.at = "left top";
+	}
+	targetWidth = dimensions.width;
+	targetHeight = dimensions.height;
+	targetOffset = dimensions.offset;
+	// clone to reuse original targetOffset later
+	basePosition = $.extend( {}, targetOffset );
+
+	// force my and at to have valid horizontal and vertical positions
+	// if a value is missing or invalid, it will be converted to center
+	$.each( [ "my", "at" ], function() {
+		var pos = ( options[ this ] || "" ).split( " " ),
+			horizontalOffset,
+			verticalOffset;
+
+		if ( pos.length === 1) {
+			pos = rhorizontal.test( pos[ 0 ] ) ?
+				pos.concat( [ "center" ] ) :
+				rvertical.test( pos[ 0 ] ) ?
+					[ "center" ].concat( pos ) :
+					[ "center", "center" ];
+		}
+		pos[ 0 ] = rhorizontal.test( pos[ 0 ] ) ? pos[ 0 ] : "center";
+		pos[ 1 ] = rvertical.test( pos[ 1 ] ) ? pos[ 1 ] : "center";
+
+		// calculate offsets
+		horizontalOffset = roffset.exec( pos[ 0 ] );
+		verticalOffset = roffset.exec( pos[ 1 ] );
+		offsets[ this ] = [
+			horizontalOffset ? horizontalOffset[ 0 ] : 0,
+			verticalOffset ? verticalOffset[ 0 ] : 0
+		];
+
+		// reduce to just the positions without the offsets
+		options[ this ] = [
+			rposition.exec( pos[ 0 ] )[ 0 ],
+			rposition.exec( pos[ 1 ] )[ 0 ]
+		];
+	});
+
+	// normalize collision option
+	if ( collision.length === 1 ) {
+		collision[ 1 ] = collision[ 0 ];
+	}
+
+	if ( options.at[ 0 ] === "right" ) {
+		basePosition.left += targetWidth;
+	} else if ( options.at[ 0 ] === "center" ) {
+		basePosition.left += targetWidth / 2;
+	}
+
+	if ( options.at[ 1 ] === "bottom" ) {
+		basePosition.top += targetHeight;
+	} else if ( options.at[ 1 ] === "center" ) {
+		basePosition.top += targetHeight / 2;
+	}
+
+	atOffset = getOffsets( offsets.at, targetWidth, targetHeight );
+	basePosition.left += atOffset[ 0 ];
+	basePosition.top += atOffset[ 1 ];
+
+	return this.each(function() {
+		var collisionPosition, using,
+			elem = $( this ),
+			elemWidth = elem.outerWidth(),
+			elemHeight = elem.outerHeight(),
+			marginLeft = parseCss( this, "marginLeft" ),
+			marginTop = parseCss( this, "marginTop" ),
+			collisionWidth = elemWidth + marginLeft + parseCss( this, "marginRight" ) + scrollInfo.width,
+			collisionHeight = elemHeight + marginTop + parseCss( this, "marginBottom" ) + scrollInfo.height,
+			position = $.extend( {}, basePosition ),
+			myOffset = getOffsets( offsets.my, elem.outerWidth(), elem.outerHeight() );
+
+		if ( options.my[ 0 ] === "right" ) {
+			position.left -= elemWidth;
+		} else if ( options.my[ 0 ] === "center" ) {
+			position.left -= elemWidth / 2;
+		}
+
+		if ( options.my[ 1 ] === "bottom" ) {
+			position.top -= elemHeight;
+		} else if ( options.my[ 1 ] === "center" ) {
+			position.top -= elemHeight / 2;
+		}
+
+		position.left += myOffset[ 0 ];
+		position.top += myOffset[ 1 ];
+
+		// if the browser doesn't support fractions, then round for consistent results
+		if ( !supportsOffsetFractions ) {
+			position.left = round( position.left );
+			position.top = round( position.top );
+		}
+
+		collisionPosition = {
+			marginLeft: marginLeft,
+			marginTop: marginTop
+		};
+
+		$.each( [ "left", "top" ], function( i, dir ) {
+			if ( $.ui.position[ collision[ i ] ] ) {
+				$.ui.position[ collision[ i ] ][ dir ]( position, {
+					targetWidth: targetWidth,
+					targetHeight: targetHeight,
+					elemWidth: elemWidth,
+					elemHeight: elemHeight,
+					collisionPosition: collisionPosition,
+					collisionWidth: collisionWidth,
+					collisionHeight: collisionHeight,
+					offset: [ atOffset[ 0 ] + myOffset[ 0 ], atOffset [ 1 ] + myOffset[ 1 ] ],
+					my: options.my,
+					at: options.at,
+					within: within,
+					elem: elem
+				});
+			}
+		});
+
+		if ( options.using ) {
+			// adds feedback as second argument to using callback, if present
+			using = function( props ) {
+				var left = targetOffset.left - position.left,
+					right = left + targetWidth - elemWidth,
+					top = targetOffset.top - position.top,
+					bottom = top + targetHeight - elemHeight,
+					feedback = {
+						target: {
+							element: target,
+							left: targetOffset.left,
+							top: targetOffset.top,
+							width: targetWidth,
+							height: targetHeight
+						},
+						element: {
+							element: elem,
+							left: position.left,
+							top: position.top,
+							width: elemWidth,
+							height: elemHeight
+						},
+						horizontal: right < 0 ? "left" : left > 0 ? "right" : "center",
+						vertical: bottom < 0 ? "top" : top > 0 ? "bottom" : "middle"
+					};
+				if ( targetWidth < elemWidth && abs( left + right ) < targetWidth ) {
+					feedback.horizontal = "center";
+				}
+				if ( targetHeight < elemHeight && abs( top + bottom ) < targetHeight ) {
+					feedback.vertical = "middle";
+				}
+				if ( max( abs( left ), abs( right ) ) > max( abs( top ), abs( bottom ) ) ) {
+					feedback.important = "horizontal";
+				} else {
+					feedback.important = "vertical";
+				}
+				options.using.call( this, props, feedback );
+			};
+		}
+
+		elem.offset( $.extend( position, { using: using } ) );
+	});
+};
+
+$.ui.position = {
+	fit: {
+		left: function( position, data ) {
+			var within = data.within,
+				withinOffset = within.isWindow ? within.scrollLeft : within.offset.left,
+				outerWidth = within.width,
+				collisionPosLeft = position.left - data.collisionPosition.marginLeft,
+				overLeft = withinOffset - collisionPosLeft,
+				overRight = collisionPosLeft + data.collisionWidth - outerWidth - withinOffset,
+				newOverRight;
+
+			// element is wider than within
+			if ( data.collisionWidth > outerWidth ) {
+				// element is initially over the left side of within
+				if ( overLeft > 0 && overRight <= 0 ) {
+					newOverRight = position.left + overLeft + data.collisionWidth - outerWidth - withinOffset;
+					position.left += overLeft - newOverRight;
+				// element is initially over right side of within
+				} else if ( overRight > 0 && overLeft <= 0 ) {
+					position.left = withinOffset;
+				// element is initially over both left and right sides of within
+				} else {
+					if ( overLeft > overRight ) {
+						position.left = withinOffset + outerWidth - data.collisionWidth;
+					} else {
+						position.left = withinOffset;
+					}
+				}
+			// too far left -> align with left edge
+			} else if ( overLeft > 0 ) {
+				position.left += overLeft;
+			// too far right -> align with right edge
+			} else if ( overRight > 0 ) {
+				position.left -= overRight;
+			// adjust based on position and margin
+			} else {
+				position.left = max( position.left - collisionPosLeft, position.left );
+			}
+		},
+		top: function( position, data ) {
+			var within = data.within,
+				withinOffset = within.isWindow ? within.scrollTop : within.offset.top,
+				outerHeight = data.within.height,
+				collisionPosTop = position.top - data.collisionPosition.marginTop,
+				overTop = withinOffset - collisionPosTop,
+				overBottom = collisionPosTop + data.collisionHeight - outerHeight - withinOffset,
+				newOverBottom;
+
+			// element is taller than within
+			if ( data.collisionHeight > outerHeight ) {
+				// element is initially over the top of within
+				if ( overTop > 0 && overBottom <= 0 ) {
+					newOverBottom = position.top + overTop + data.collisionHeight - outerHeight - withinOffset;
+					position.top += overTop - newOverBottom;
+				// element is initially over bottom of within
+				} else if ( overBottom > 0 && overTop <= 0 ) {
+					position.top = withinOffset;
+				// element is initially over both top and bottom of within
+				} else {
+					if ( overTop > overBottom ) {
+						position.top = withinOffset + outerHeight - data.collisionHeight;
+					} else {
+						position.top = withinOffset;
+					}
+				}
+			// too far up -> align with top
+			} else if ( overTop > 0 ) {
+				position.top += overTop;
+			// too far down -> align with bottom edge
+			} else if ( overBottom > 0 ) {
+				position.top -= overBottom;
+			// adjust based on position and margin
+			} else {
+				position.top = max( position.top - collisionPosTop, position.top );
+			}
+		}
+	},
+	flip: {
+		left: function( position, data ) {
+			var within = data.within,
+				withinOffset = within.offset.left + within.scrollLeft,
+				outerWidth = within.width,
+				offsetLeft = within.isWindow ? within.scrollLeft : within.offset.left,
+				collisionPosLeft = position.left - data.collisionPosition.marginLeft,
+				overLeft = collisionPosLeft - offsetLeft,
+				overRight = collisionPosLeft + data.collisionWidth - outerWidth - offsetLeft,
+				myOffset = data.my[ 0 ] === "left" ?
+					-data.elemWidth :
+					data.my[ 0 ] === "right" ?
+						data.elemWidth :
+						0,
+				atOffset = data.at[ 0 ] === "left" ?
+					data.targetWidth :
+					data.at[ 0 ] === "right" ?
+						-data.targetWidth :
+						0,
+				offset = -2 * data.offset[ 0 ],
+				newOverRight,
+				newOverLeft;
+
+			if ( overLeft < 0 ) {
+				newOverRight = position.left + myOffset + atOffset + offset + data.collisionWidth - outerWidth - withinOffset;
+				if ( newOverRight < 0 || newOverRight < abs( overLeft ) ) {
+					position.left += myOffset + atOffset + offset;
+				}
+			} else if ( overRight > 0 ) {
+				newOverLeft = position.left - data.collisionPosition.marginLeft + myOffset + atOffset + offset - offsetLeft;
+				if ( newOverLeft > 0 || abs( newOverLeft ) < overRight ) {
+					position.left += myOffset + atOffset + offset;
+				}
+			}
+		},
+		top: function( position, data ) {
+			var within = data.within,
+				withinOffset = within.offset.top + within.scrollTop,
+				outerHeight = within.height,
+				offsetTop = within.isWindow ? within.scrollTop : within.offset.top,
+				collisionPosTop = position.top - data.collisionPosition.marginTop,
+				overTop = collisionPosTop - offsetTop,
+				overBottom = collisionPosTop + data.collisionHeight - outerHeight - offsetTop,
+				top = data.my[ 1 ] === "top",
+				myOffset = top ?
+					-data.elemHeight :
+					data.my[ 1 ] === "bottom" ?
+						data.elemHeight :
+						0,
+				atOffset = data.at[ 1 ] === "top" ?
+					data.targetHeight :
+					data.at[ 1 ] === "bottom" ?
+						-data.targetHeight :
+						0,
+				offset = -2 * data.offset[ 1 ],
+				newOverTop,
+				newOverBottom;
+			if ( overTop < 0 ) {
+				newOverBottom = position.top + myOffset + atOffset + offset + data.collisionHeight - outerHeight - withinOffset;
+				if ( ( position.top + myOffset + atOffset + offset) > overTop && ( newOverBottom < 0 || newOverBottom < abs( overTop ) ) ) {
+					position.top += myOffset + atOffset + offset;
+				}
+			} else if ( overBottom > 0 ) {
+				newOverTop = position.top - data.collisionPosition.marginTop + myOffset + atOffset + offset - offsetTop;
+				if ( ( position.top + myOffset + atOffset + offset) > overBottom && ( newOverTop > 0 || abs( newOverTop ) < overBottom ) ) {
+					position.top += myOffset + atOffset + offset;
+				}
+			}
+		}
+	},
+	flipfit: {
+		left: function() {
+			$.ui.position.flip.left.apply( this, arguments );
+			$.ui.position.fit.left.apply( this, arguments );
+		},
+		top: function() {
+			$.ui.position.flip.top.apply( this, arguments );
+			$.ui.position.fit.top.apply( this, arguments );
+		}
+	}
+};
+
+// fraction support test
+(function() {
+	var testElement, testElementParent, testElementStyle, offsetLeft, i,
+		body = document.getElementsByTagName( "body" )[ 0 ],
+		div = document.createElement( "div" );
+
+	//Create a "fake body" for testing based on method used in jQuery.support
+	testElement = document.createElement( body ? "div" : "body" );
+	testElementStyle = {
+		visibility: "hidden",
+		width: 0,
+		height: 0,
+		border: 0,
+		margin: 0,
+		background: "none"
+	};
+	if ( body ) {
+		$.extend( testElementStyle, {
+			position: "absolute",
+			left: "-1000px",
+			top: "-1000px"
+		});
+	}
+	for ( i in testElementStyle ) {
+		testElement.style[ i ] = testElementStyle[ i ];
+	}
+	testElement.appendChild( div );
+	testElementParent = body || document.documentElement;
+	testElementParent.insertBefore( testElement, testElementParent.firstChild );
+
+	div.style.cssText = "position: absolute; left: 10.7432222px;";
+
+	offsetLeft = $( div ).offset().left;
+	supportsOffsetFractions = offsetLeft > 10 && offsetLeft < 11;
+
+	testElement.innerHTML = "";
+	testElementParent.removeChild( testElement );
+})();
+
+})();
+
+return $.ui.position;
+
+}));
+;
+/*!
+ * jQuery UI Draggable 1.11.1
+ * http://jqueryui.com
+ *
+ * Copyright 2014 jQuery Foundation and other contributors
+ * Released under the MIT license.
+ * http://jquery.org/license
+ *
+ * http://api.jqueryui.com/draggable/
+ */
+(function( factory ) {
+	if ( typeof define === "function" && define.amd ) {
+
+		// AMD. Register as an anonymous module.
+		define([
+			"jquery",
+			"./core",
+			"./mouse",
+			"./widget"
+		], factory );
+	} else {
+
+		// Browser globals
+		factory( jQuery );
+	}
+}(function( $ ) {
+
+$.widget("ui.draggable", $.ui.mouse, {
+	version: "1.11.1",
+	widgetEventPrefix: "drag",
+	options: {
+		addClasses: true,
+		appendTo: "parent",
+		axis: false,
+		connectToSortable: false,
+		containment: false,
+		cursor: "auto",
+		cursorAt: false,
+		grid: false,
+		handle: false,
+		helper: "original",
+		iframeFix: false,
+		opacity: false,
+		refreshPositions: false,
+		revert: false,
+		revertDuration: 500,
+		scope: "default",
+		scroll: true,
+		scrollSensitivity: 20,
+		scrollSpeed: 20,
+		snap: false,
+		snapMode: "both",
+		snapTolerance: 20,
+		stack: false,
+		zIndex: false,
+
+		// callbacks
+		drag: null,
+		start: null,
+		stop: null
+	},
+	_create: function() {
+
+		if (this.options.helper === "original" && !(/^(?:r|a|f)/).test(this.element.css("position"))) {
+			this.element[0].style.position = "relative";
+		}
+		if (this.options.addClasses){
+			this.element.addClass("ui-draggable");
+		}
+		if (this.options.disabled){
+			this.element.addClass("ui-draggable-disabled");
+		}
+		this._setHandleClassName();
+
+		this._mouseInit();
+	},
+
+	_setOption: function( key, value ) {
+		this._super( key, value );
+		if ( key === "handle" ) {
+			this._removeHandleClassName();
+			this._setHandleClassName();
+		}
+	},
+
+	_destroy: function() {
+		if ( ( this.helper || this.element ).is( ".ui-draggable-dragging" ) ) {
+			this.destroyOnClear = true;
+			return;
+		}
+		this.element.removeClass( "ui-draggable ui-draggable-dragging ui-draggable-disabled" );
+		this._removeHandleClassName();
+		this._mouseDestroy();
+	},
+
+	_mouseCapture: function(event) {
+
+		var document = this.document[ 0 ],
+			o = this.options;
+
+		// support: IE9
+		// IE9 throws an "Unspecified error" accessing document.activeElement from an <iframe>
+		try {
+			// Support: IE9+
+			// If the <body> is blurred, IE will switch windows, see #9520
+			if ( document.activeElement && document.activeElement.nodeName.toLowerCase() !== "body" ) {
+				// Blur any element that currently has focus, see #4261
+				$( document.activeElement ).blur();
+			}
+		} catch ( error ) {}
+
+		// among others, prevent a drag on a resizable-handle
+		if (this.helper || o.disabled || $(event.target).closest(".ui-resizable-handle").length > 0) {
+			return false;
+		}
+
+		//Quit if we're not on a valid handle
+		this.handle = this._getHandle(event);
+		if (!this.handle) {
+			return false;
+		}
+
+		$(o.iframeFix === true ? "iframe" : o.iframeFix).each(function() {
+			$("<div class='ui-draggable-iframeFix' style='background: #fff;'></div>")
+			.css({
+				width: this.offsetWidth + "px", height: this.offsetHeight + "px",
+				position: "absolute", opacity: "0.001", zIndex: 1000
+			})
+			.css($(this).offset())
+			.appendTo("body");
+		});
+
+		return true;
+
+	},
+
+	_mouseStart: function(event) {
+
+		var o = this.options;
+
+		//Create and append the visible helper
+		this.helper = this._createHelper(event);
+
+		this.helper.addClass("ui-draggable-dragging");
+
+		//Cache the helper size
+		this._cacheHelperProportions();
+
+		//If ddmanager is used for droppables, set the global draggable
+		if ($.ui.ddmanager) {
+			$.ui.ddmanager.current = this;
+		}
+
+		/*
+		 * - Position generation -
+		 * This block generates everything position related - it's the core of draggables.
+		 */
+
+		//Cache the margins of the original element
+		this._cacheMargins();
+
+		//Store the helper's css position
+		this.cssPosition = this.helper.css( "position" );
+		this.scrollParent = this.helper.scrollParent( true );
+		this.offsetParent = this.helper.offsetParent();
+		this.offsetParentCssPosition = this.offsetParent.css( "position" );
+
+		//The element's absolute position on the page minus margins
+		this.offset = this.positionAbs = this.element.offset();
+		this.offset = {
+			top: this.offset.top - this.margins.top,
+			left: this.offset.left - this.margins.left
+		};
+
+		//Reset scroll cache
+		this.offset.scroll = false;
+
+		$.extend(this.offset, {
+			click: { //Where the click happened, relative to the element
+				left: event.pageX - this.offset.left,
+				top: event.pageY - this.offset.top
+			},
+			parent: this._getParentOffset(),
+			relative: this._getRelativeOffset() //This is a relative to absolute position minus the actual position calculation - only used for relative positioned helper
+		});
+
+		//Generate the original position
+		this.originalPosition = this.position = this._generatePosition( event, false );
+		this.originalPageX = event.pageX;
+		this.originalPageY = event.pageY;
+
+		//Adjust the mouse offset relative to the helper if "cursorAt" is supplied
+		(o.cursorAt && this._adjustOffsetFromHelper(o.cursorAt));
+
+		//Set a containment if given in the options
+		this._setContainment();
+
+		//Trigger event + callbacks
+		if (this._trigger("start", event) === false) {
+			this._clear();
+			return false;
+		}
+
+		//Recache the helper size
+		this._cacheHelperProportions();
+
+		//Prepare the droppable offsets
+		if ($.ui.ddmanager && !o.dropBehaviour) {
+			$.ui.ddmanager.prepareOffsets(this, event);
+		}
+
+		this._mouseDrag(event, true); //Execute the drag once - this causes the helper not to be visible before getting its correct position
+
+		//If the ddmanager is used for droppables, inform the manager that dragging has started (see #5003)
+		if ( $.ui.ddmanager ) {
+			$.ui.ddmanager.dragStart(this, event);
+		}
+
+		return true;
+	},
+
+	_mouseDrag: function(event, noPropagation) {
+		// reset any necessary cached properties (see #5009)
+		if ( this.offsetParentCssPosition === "fixed" ) {
+			this.offset.parent = this._getParentOffset();
+		}
+
+		//Compute the helpers position
+		this.position = this._generatePosition( event, true );
+		this.positionAbs = this._convertPositionTo("absolute");
+
+		//Call plugins and callbacks and use the resulting position if something is returned
+		if (!noPropagation) {
+			var ui = this._uiHash();
+			if (this._trigger("drag", event, ui) === false) {
+				this._mouseUp({});
+				return false;
+			}
+			this.position = ui.position;
+		}
+
+		this.helper[ 0 ].style.left = this.position.left + "px";
+		this.helper[ 0 ].style.top = this.position.top + "px";
+
+		if ($.ui.ddmanager) {
+			$.ui.ddmanager.drag(this, event);
+		}
+
+		return false;
+	},
+
+	_mouseStop: function(event) {
+
+		//If we are using droppables, inform the manager about the drop
+		var that = this,
+			dropped = false;
+		if ($.ui.ddmanager && !this.options.dropBehaviour) {
+			dropped = $.ui.ddmanager.drop(this, event);
+		}
+
+		//if a drop comes from outside (a sortable)
+		if (this.dropped) {
+			dropped = this.dropped;
+			this.dropped = false;
+		}
+
+		if ((this.options.revert === "invalid" && !dropped) || (this.options.revert === "valid" && dropped) || this.options.revert === true || ($.isFunction(this.options.revert) && this.options.revert.call(this.element, dropped))) {
+			$(this.helper).animate(this.originalPosition, parseInt(this.options.revertDuration, 10), function() {
+				if (that._trigger("stop", event) !== false) {
+					that._clear();
+				}
+			});
+		} else {
+			if (this._trigger("stop", event) !== false) {
+				this._clear();
+			}
+		}
+
+		return false;
+	},
+
+	_mouseUp: function(event) {
+		//Remove frame helpers
+		$("div.ui-draggable-iframeFix").each(function() {
+			this.parentNode.removeChild(this);
+		});
+
+		//If the ddmanager is used for droppables, inform the manager that dragging has stopped (see #5003)
+		if ( $.ui.ddmanager ) {
+			$.ui.ddmanager.dragStop(this, event);
+		}
+
+		// The interaction is over; whether or not the click resulted in a drag, focus the element
+		this.element.focus();
+
+		return $.ui.mouse.prototype._mouseUp.call(this, event);
+	},
+
+	cancel: function() {
+
+		if (this.helper.is(".ui-draggable-dragging")) {
+			this._mouseUp({});
+		} else {
+			this._clear();
+		}
+
+		return this;
+
+	},
+
+	_getHandle: function(event) {
+		return this.options.handle ?
+			!!$( event.target ).closest( this.element.find( this.options.handle ) ).length :
+			true;
+	},
+
+	_setHandleClassName: function() {
+		this.handleElement = this.options.handle ?
+			this.element.find( this.options.handle ) : this.element;
+		this.handleElement.addClass( "ui-draggable-handle" );
+	},
+
+	_removeHandleClassName: function() {
+		this.handleElement.removeClass( "ui-draggable-handle" );
+	},
+
+	_createHelper: function(event) {
+
+		var o = this.options,
+			helper = $.isFunction(o.helper) ? $(o.helper.apply(this.element[ 0 ], [ event ])) : (o.helper === "clone" ? this.element.clone().removeAttr("id") : this.element);
+
+		if (!helper.parents("body").length) {
+			helper.appendTo((o.appendTo === "parent" ? this.element[0].parentNode : o.appendTo));
+		}
+
+		if (helper[0] !== this.element[0] && !(/(fixed|absolute)/).test(helper.css("position"))) {
+			helper.css("position", "absolute");
+		}
+
+		return helper;
+
+	},
+
+	_adjustOffsetFromHelper: function(obj) {
+		if (typeof obj === "string") {
+			obj = obj.split(" ");
+		}
+		if ($.isArray(obj)) {
+			obj = { left: +obj[0], top: +obj[1] || 0 };
+		}
+		if ("left" in obj) {
+			this.offset.click.left = obj.left + this.margins.left;
+		}
+		if ("right" in obj) {
+			this.offset.click.left = this.helperProportions.width - obj.right + this.margins.left;
+		}
+		if ("top" in obj) {
+			this.offset.click.top = obj.top + this.margins.top;
+		}
+		if ("bottom" in obj) {
+			this.offset.click.top = this.helperProportions.height - obj.bottom + this.margins.top;
+		}
+	},
+
+	_isRootNode: function( element ) {
+		return ( /(html|body)/i ).test( element.tagName ) || element === this.document[ 0 ];
+	},
+
+	_getParentOffset: function() {
+
+		//Get the offsetParent and cache its position
+		var po = this.offsetParent.offset(),
+			document = this.document[ 0 ];
+
+		// This is a special case where we need to modify a offset calculated on start, since the following happened:
+		// 1. The position of the helper is absolute, so it's position is calculated based on the next positioned parent
+		// 2. The actual offset parent is a child of the scroll parent, and the scroll parent isn't the document, which means that
+		//    the scroll is included in the initial calculation of the offset of the parent, and never recalculated upon drag
+		if (this.cssPosition === "absolute" && this.scrollParent[0] !== document && $.contains(this.scrollParent[0], this.offsetParent[0])) {
+			po.left += this.scrollParent.scrollLeft();
+			po.top += this.scrollParent.scrollTop();
+		}
+
+		if ( this._isRootNode( this.offsetParent[ 0 ] ) ) {
+			po = { top: 0, left: 0 };
+		}
+
+		return {
+			top: po.top + (parseInt(this.offsetParent.css("borderTopWidth"), 10) || 0),
+			left: po.left + (parseInt(this.offsetParent.css("borderLeftWidth"), 10) || 0)
+		};
+
+	},
+
+	_getRelativeOffset: function() {
+		if ( this.cssPosition !== "relative" ) {
+			return { top: 0, left: 0 };
+		}
+
+		var p = this.element.position(),
+			scrollIsRootNode = this._isRootNode( this.scrollParent[ 0 ] );
+
+		return {
+			top: p.top - ( parseInt(this.helper.css( "top" ), 10) || 0 ) + ( !scrollIsRootNode ? this.scrollParent.scrollTop() : 0 ),
+			left: p.left - ( parseInt(this.helper.css( "left" ), 10) || 0 ) + ( !scrollIsRootNode ? this.scrollParent.scrollLeft() : 0 )
+		};
+
+	},
+
+	_cacheMargins: function() {
+		this.margins = {
+			left: (parseInt(this.element.css("marginLeft"), 10) || 0),
+			top: (parseInt(this.element.css("marginTop"), 10) || 0),
+			right: (parseInt(this.element.css("marginRight"), 10) || 0),
+			bottom: (parseInt(this.element.css("marginBottom"), 10) || 0)
+		};
+	},
+
+	_cacheHelperProportions: function() {
+		this.helperProportions = {
+			width: this.helper.outerWidth(),
+			height: this.helper.outerHeight()
+		};
+	},
+
+	_setContainment: function() {
+
+		var over, c, ce,
+			o = this.options,
+			document = this.document[ 0 ];
+
+		this.relativeContainer = null;
+
+		if ( !o.containment ) {
+			this.containment = null;
+			return;
+		}
+
+		if ( o.containment === "window" ) {
+			this.containment = [
+				$( window ).scrollLeft() - this.offset.relative.left - this.offset.parent.left,
+				$( window ).scrollTop() - this.offset.relative.top - this.offset.parent.top,
+				$( window ).scrollLeft() + $( window ).width() - this.helperProportions.width - this.margins.left,
+				$( window ).scrollTop() + ( $( window ).height() || document.body.parentNode.scrollHeight ) - this.helperProportions.height - this.margins.top
+			];
+			return;
+		}
+
+		if ( o.containment === "document") {
+			this.containment = [
+				0,
+				0,
+				$( document ).width() - this.helperProportions.width - this.margins.left,
+				( $( document ).height() || document.body.parentNode.scrollHeight ) - this.helperProportions.height - this.margins.top
+			];
+			return;
+		}
+
+		if ( o.containment.constructor === Array ) {
+			this.containment = o.containment;
+			return;
+		}
+
+		if ( o.containment === "parent" ) {
+			o.containment = this.helper[ 0 ].parentNode;
+		}
+
+		c = $( o.containment );
+		ce = c[ 0 ];
+
+		if ( !ce ) {
+			return;
+		}
+
+		over = c.css( "overflow" ) !== "hidden";
+
+		this.containment = [
+			( parseInt( c.css( "borderLeftWidth" ), 10 ) || 0 ) + ( parseInt( c.css( "paddingLeft" ), 10 ) || 0 ),
+			( parseInt( c.css( "borderTopWidth" ), 10 ) || 0 ) + ( parseInt( c.css( "paddingTop" ), 10 ) || 0 ),
+			( over ? Math.max( ce.scrollWidth, ce.offsetWidth ) : ce.offsetWidth ) - ( parseInt( c.css( "borderRightWidth" ), 10 ) || 0 ) - ( parseInt( c.css( "paddingRight" ), 10 ) || 0 ) - this.helperProportions.width - this.margins.left - this.margins.right,
+			( over ? Math.max( ce.scrollHeight, ce.offsetHeight ) : ce.offsetHeight ) - ( parseInt( c.css( "borderBottomWidth" ), 10 ) || 0 ) - ( parseInt( c.css( "paddingBottom" ), 10 ) || 0 ) - this.helperProportions.height - this.margins.top  - this.margins.bottom
+		];
+		this.relativeContainer = c;
+	},
+
+	_convertPositionTo: function(d, pos) {
+
+		if (!pos) {
+			pos = this.position;
+		}
+
+		var mod = d === "absolute" ? 1 : -1,
+			scrollIsRootNode = this._isRootNode( this.scrollParent[ 0 ] );
+
+		return {
+			top: (
+				pos.top	+																// The absolute mouse position
+				this.offset.relative.top * mod +										// Only for relative positioned nodes: Relative offset from element to offset parent
+				this.offset.parent.top * mod -										// The offsetParent's offset without borders (offset + border)
+				( ( this.cssPosition === "fixed" ? -this.offset.scroll.top : ( scrollIsRootNode ? 0 : this.offset.scroll.top ) ) * mod)
+			),
+			left: (
+				pos.left +																// The absolute mouse position
+				this.offset.relative.left * mod +										// Only for relative positioned nodes: Relative offset from element to offset parent
+				this.offset.parent.left * mod	-										// The offsetParent's offset without borders (offset + border)
+				( ( this.cssPosition === "fixed" ? -this.offset.scroll.left : ( scrollIsRootNode ? 0 : this.offset.scroll.left ) ) * mod)
+			)
+		};
+
+	},
+
+	_generatePosition: function( event, constrainPosition ) {
+
+		var containment, co, top, left,
+			o = this.options,
+			scrollIsRootNode = this._isRootNode( this.scrollParent[ 0 ] ),
+			pageX = event.pageX,
+			pageY = event.pageY;
+
+		// Cache the scroll
+		if ( !scrollIsRootNode || !this.offset.scroll ) {
+			this.offset.scroll = {
+				top: this.scrollParent.scrollTop(),
+				left: this.scrollParent.scrollLeft()
+			};
+		}
+
+		/*
+		 * - Position constraining -
+		 * Constrain the position to a mix of grid, containment.
+		 */
+
+		// If we are not dragging yet, we won't check for options
+		if ( constrainPosition ) {
+			if ( this.containment ) {
+				if ( this.relativeContainer ){
+					co = this.relativeContainer.offset();
+					containment = [
+						this.containment[ 0 ] + co.left,
+						this.containment[ 1 ] + co.top,
+						this.containment[ 2 ] + co.left,
+						this.containment[ 3 ] + co.top
+					];
+				} else {
+					containment = this.containment;
+				}
+
+				if (event.pageX - this.offset.click.left < containment[0]) {
+					pageX = containment[0] + this.offset.click.left;
+				}
+				if (event.pageY - this.offset.click.top < containment[1]) {
+					pageY = containment[1] + this.offset.click.top;
+				}
+				if (event.pageX - this.offset.click.left > containment[2]) {
+					pageX = containment[2] + this.offset.click.left;
+				}
+				if (event.pageY - this.offset.click.top > containment[3]) {
+					pageY = containment[3] + this.offset.click.top;
+				}
+			}
+
+			if (o.grid) {
+				//Check for grid elements set to 0 to prevent divide by 0 error causing invalid argument errors in IE (see ticket #6950)
+				top = o.grid[1] ? this.originalPageY + Math.round((pageY - this.originalPageY) / o.grid[1]) * o.grid[1] : this.originalPageY;
+				pageY = containment ? ((top - this.offset.click.top >= containment[1] || top - this.offset.click.top > containment[3]) ? top : ((top - this.offset.click.top >= containment[1]) ? top - o.grid[1] : top + o.grid[1])) : top;
+
+				left = o.grid[0] ? this.originalPageX + Math.round((pageX - this.originalPageX) / o.grid[0]) * o.grid[0] : this.originalPageX;
+				pageX = containment ? ((left - this.offset.click.left >= containment[0] || left - this.offset.click.left > containment[2]) ? left : ((left - this.offset.click.left >= containment[0]) ? left - o.grid[0] : left + o.grid[0])) : left;
+			}
+
+			if ( o.axis === "y" ) {
+				pageX = this.originalPageX;
+			}
+
+			if ( o.axis === "x" ) {
+				pageY = this.originalPageY;
+			}
+		}
+
+		return {
+			top: (
+				pageY -																	// The absolute mouse position
+				this.offset.click.top	-												// Click offset (relative to the element)
+				this.offset.relative.top -												// Only for relative positioned nodes: Relative offset from element to offset parent
+				this.offset.parent.top +												// The offsetParent's offset without borders (offset + border)
+				( this.cssPosition === "fixed" ? -this.offset.scroll.top : ( scrollIsRootNode ? 0 : this.offset.scroll.top ) )
+			),
+			left: (
+				pageX -																	// The absolute mouse position
+				this.offset.click.left -												// Click offset (relative to the element)
+				this.offset.relative.left -												// Only for relative positioned nodes: Relative offset from element to offset parent
+				this.offset.parent.left +												// The offsetParent's offset without borders (offset + border)
+				( this.cssPosition === "fixed" ? -this.offset.scroll.left : ( scrollIsRootNode ? 0 : this.offset.scroll.left ) )
+			)
+		};
+
+	},
+
+	_clear: function() {
+		this.helper.removeClass("ui-draggable-dragging");
+		if (this.helper[0] !== this.element[0] && !this.cancelHelperRemoval) {
+			this.helper.remove();
+		}
+		this.helper = null;
+		this.cancelHelperRemoval = false;
+		if ( this.destroyOnClear ) {
+			this.destroy();
+		}
+	},
+
+	// From now on bulk stuff - mainly helpers
+
+	_trigger: function(type, event, ui) {
+		ui = ui || this._uiHash();
+		$.ui.plugin.call( this, type, [ event, ui, this ], true );
+		//The absolute position has to be recalculated after plugins
+		if (type === "drag") {
+			this.positionAbs = this._convertPositionTo("absolute");
+		}
+		return $.Widget.prototype._trigger.call(this, type, event, ui);
+	},
+
+	plugins: {},
+
+	_uiHash: function() {
+		return {
+			helper: this.helper,
+			position: this.position,
+			originalPosition: this.originalPosition,
+			offset: this.positionAbs
+		};
+	}
+
+});
+
+$.ui.plugin.add("draggable", "connectToSortable", {
+	start: function( event, ui, inst ) {
+
+		var o = inst.options,
+			uiSortable = $.extend({}, ui, { item: inst.element });
+		inst.sortables = [];
+		$(o.connectToSortable).each(function() {
+			var sortable = $( this ).sortable( "instance" );
+			if (sortable && !sortable.options.disabled) {
+				inst.sortables.push({
+					instance: sortable,
+					shouldRevert: sortable.options.revert
+				});
+				sortable.refreshPositions();	// Call the sortable's refreshPositions at drag start to refresh the containerCache since the sortable container cache is used in drag and needs to be up to date (this will ensure it's initialised as well as being kept in step with any changes that might have happened on the page).
+				sortable._trigger("activate", event, uiSortable);
+			}
+		});
+
+	},
+	stop: function( event, ui, inst ) {
+
+		//If we are still over the sortable, we fake the stop event of the sortable, but also remove helper
+		var uiSortable = $.extend( {}, ui, {
+			item: inst.element
+		});
+
+		$.each(inst.sortables, function() {
+			if (this.instance.isOver) {
+
+				this.instance.isOver = 0;
+
+				inst.cancelHelperRemoval = true; //Don't remove the helper in the draggable instance
+				this.instance.cancelHelperRemoval = false; //Remove it in the sortable instance (so sortable plugins like revert still work)
+
+				//The sortable revert is supported, and we have to set a temporary dropped variable on the draggable to support revert: "valid/invalid"
+				if (this.shouldRevert) {
+					this.instance.options.revert = this.shouldRevert;
+				}
+
+				//Trigger the stop of the sortable
+				this.instance._mouseStop(event);
+
+				this.instance.options.helper = this.instance.options._helper;
+
+				//If the helper has been the original item, restore properties in the sortable
+				if (inst.options.helper === "original") {
+					this.instance.currentItem.css({ top: "auto", left: "auto" });
+				}
+
+			} else {
+				this.instance.cancelHelperRemoval = false; //Remove the helper in the sortable instance
+				this.instance._trigger("deactivate", event, uiSortable);
+			}
+
+		});
+
+	},
+	drag: function( event, ui, inst ) {
+
+		var that = this;
+
+		$.each(inst.sortables, function() {
+
+			var innermostIntersecting = false,
+				thisSortable = this;
+
+			//Copy over some variables to allow calling the sortable's native _intersectsWith
+			this.instance.positionAbs = inst.positionAbs;
+			this.instance.helperProportions = inst.helperProportions;
+			this.instance.offset.click = inst.offset.click;
+
+			if (this.instance._intersectsWith(this.instance.containerCache)) {
+				innermostIntersecting = true;
+				$.each(inst.sortables, function() {
+					this.instance.positionAbs = inst.positionAbs;
+					this.instance.helperProportions = inst.helperProportions;
+					this.instance.offset.click = inst.offset.click;
+					if (this !== thisSortable &&
+						this.instance._intersectsWith(this.instance.containerCache) &&
+						$.contains(thisSortable.instance.element[0], this.instance.element[0])
+					) {
+						innermostIntersecting = false;
+					}
+					return innermostIntersecting;
+				});
+			}
+
+			if (innermostIntersecting) {
+				//If it intersects, we use a little isOver variable and set it once, so our move-in stuff gets fired only once
+				if (!this.instance.isOver) {
+
+					this.instance.isOver = 1;
+					//Now we fake the start of dragging for the sortable instance,
+					//by cloning the list group item, appending it to the sortable and using it as inst.currentItem
+					//We can then fire the start event of the sortable with our passed browser event, and our own helper (so it doesn't create a new one)
+					this.instance.currentItem = $(that).clone().removeAttr("id").appendTo(this.instance.element).data("ui-sortable-item", true);
+					this.instance.options._helper = this.instance.options.helper; //Store helper option to later restore it
+					this.instance.options.helper = function() { return ui.helper[0]; };
+
+					event.target = this.instance.currentItem[0];
+					this.instance._mouseCapture(event, true);
+					this.instance._mouseStart(event, true, true);
+
+					//Because the browser event is way off the new appended portlet, we modify a couple of variables to reflect the changes
+					this.instance.offset.click.top = inst.offset.click.top;
+					this.instance.offset.click.left = inst.offset.click.left;
+					this.instance.offset.parent.left -= inst.offset.parent.left - this.instance.offset.parent.left;
+					this.instance.offset.parent.top -= inst.offset.parent.top - this.instance.offset.parent.top;
+
+					inst._trigger("toSortable", event);
+					inst.dropped = this.instance.element; //draggable revert needs that
+					//hack so receive/update callbacks work (mostly)
+					inst.currentItem = inst.element;
+					this.instance.fromOutside = inst;
+
+				}
+
+				//Provided we did all the previous steps, we can fire the drag event of the sortable on every draggable drag, when it intersects with the sortable
+				if (this.instance.currentItem) {
+					this.instance._mouseDrag(event);
+				}
+
+			} else {
+
+				//If it doesn't intersect with the sortable, and it intersected before,
+				//we fake the drag stop of the sortable, but make sure it doesn't remove the helper by using cancelHelperRemoval
+				if (this.instance.isOver) {
+
+					this.instance.isOver = 0;
+					this.instance.cancelHelperRemoval = true;
+
+					//Prevent reverting on this forced stop
+					this.instance.options.revert = false;
+
+					// The out event needs to be triggered independently
+					this.instance._trigger("out", event, this.instance._uiHash(this.instance));
+
+					this.instance._mouseStop(event, true);
+					this.instance.options.helper = this.instance.options._helper;
+
+					//Now we remove our currentItem, the list group clone again, and the placeholder, and animate the helper back to it's original size
+					this.instance.currentItem.remove();
+					if (this.instance.placeholder) {
+						this.instance.placeholder.remove();
+					}
+
+					inst._trigger("fromSortable", event);
+					inst.dropped = false; //draggable revert needs that
+				}
+
+			}
+
+		});
+
+	}
+});
+
+$.ui.plugin.add("draggable", "cursor", {
+	start: function( event, ui, instance ) {
+		var t = $( "body" ),
+			o = instance.options;
+
+		if (t.css("cursor")) {
+			o._cursor = t.css("cursor");
+		}
+		t.css("cursor", o.cursor);
+	},
+	stop: function( event, ui, instance ) {
+		var o = instance.options;
+		if (o._cursor) {
+			$("body").css("cursor", o._cursor);
+		}
+	}
+});
+
+$.ui.plugin.add("draggable", "opacity", {
+	start: function( event, ui, instance ) {
+		var t = $( ui.helper ),
+			o = instance.options;
+		if (t.css("opacity")) {
+			o._opacity = t.css("opacity");
+		}
+		t.css("opacity", o.opacity);
+	},
+	stop: function( event, ui, instance ) {
+		var o = instance.options;
+		if (o._opacity) {
+			$(ui.helper).css("opacity", o._opacity);
+		}
+	}
+});
+
+$.ui.plugin.add("draggable", "scroll", {
+	start: function( event, ui, i ) {
+		if ( !i.scrollParentNotHidden ) {
+			i.scrollParentNotHidden = i.helper.scrollParent( false );
+		}
+
+		if ( i.scrollParentNotHidden[ 0 ] !== i.document[ 0 ] && i.scrollParentNotHidden[ 0 ].tagName !== "HTML" ) {
+			i.overflowOffset = i.scrollParentNotHidden.offset();
+		}
+	},
+	drag: function( event, ui, i  ) {
+
+		var o = i.options,
+			scrolled = false,
+			scrollParent = i.scrollParentNotHidden[ 0 ],
+			document = i.document[ 0 ];
+
+		if ( scrollParent !== document && scrollParent.tagName !== "HTML" ) {
+			if ( !o.axis || o.axis !== "x" ) {
+				if ( ( i.overflowOffset.top + scrollParent.offsetHeight ) - event.pageY < o.scrollSensitivity ) {
+					scrollParent.scrollTop = scrolled = scrollParent.scrollTop + o.scrollSpeed;
+				} else if ( event.pageY - i.overflowOffset.top < o.scrollSensitivity ) {
+					scrollParent.scrollTop = scrolled = scrollParent.scrollTop - o.scrollSpeed;
+				}
+			}
+
+			if ( !o.axis || o.axis !== "y" ) {
+				if ( ( i.overflowOffset.left + scrollParent.offsetWidth ) - event.pageX < o.scrollSensitivity ) {
+					scrollParent.scrollLeft = scrolled = scrollParent.scrollLeft + o.scrollSpeed;
+				} else if ( event.pageX - i.overflowOffset.left < o.scrollSensitivity ) {
+					scrollParent.scrollLeft = scrolled = scrollParent.scrollLeft - o.scrollSpeed;
+				}
+			}
+
+		} else {
+
+			if (!o.axis || o.axis !== "x") {
+				if (event.pageY - $(document).scrollTop() < o.scrollSensitivity) {
+					scrolled = $(document).scrollTop($(document).scrollTop() - o.scrollSpeed);
+				} else if ($(window).height() - (event.pageY - $(document).scrollTop()) < o.scrollSensitivity) {
+					scrolled = $(document).scrollTop($(document).scrollTop() + o.scrollSpeed);
+				}
+			}
+
+			if (!o.axis || o.axis !== "y") {
+				if (event.pageX - $(document).scrollLeft() < o.scrollSensitivity) {
+					scrolled = $(document).scrollLeft($(document).scrollLeft() - o.scrollSpeed);
+				} else if ($(window).width() - (event.pageX - $(document).scrollLeft()) < o.scrollSensitivity) {
+					scrolled = $(document).scrollLeft($(document).scrollLeft() + o.scrollSpeed);
+				}
+			}
+
+		}
+
+		if (scrolled !== false && $.ui.ddmanager && !o.dropBehaviour) {
+			$.ui.ddmanager.prepareOffsets(i, event);
+		}
+
+	}
+});
+
+$.ui.plugin.add("draggable", "snap", {
+	start: function( event, ui, i ) {
+
+		var o = i.options;
+
+		i.snapElements = [];
+
+		$(o.snap.constructor !== String ? ( o.snap.items || ":data(ui-draggable)" ) : o.snap).each(function() {
+			var $t = $(this),
+				$o = $t.offset();
+			if (this !== i.element[0]) {
+				i.snapElements.push({
+					item: this,
+					width: $t.outerWidth(), height: $t.outerHeight(),
+					top: $o.top, left: $o.left
+				});
+			}
+		});
+
+	},
+	drag: function( event, ui, inst ) {
+
+		var ts, bs, ls, rs, l, r, t, b, i, first,
+			o = inst.options,
+			d = o.snapTolerance,
+			x1 = ui.offset.left, x2 = x1 + inst.helperProportions.width,
+			y1 = ui.offset.top, y2 = y1 + inst.helperProportions.height;
+
+		for (i = inst.snapElements.length - 1; i >= 0; i--){
+
+			l = inst.snapElements[i].left;
+			r = l + inst.snapElements[i].width;
+			t = inst.snapElements[i].top;
+			b = t + inst.snapElements[i].height;
+
+			if ( x2 < l - d || x1 > r + d || y2 < t - d || y1 > b + d || !$.contains( inst.snapElements[ i ].item.ownerDocument, inst.snapElements[ i ].item ) ) {
+				if (inst.snapElements[i].snapping) {
+					(inst.options.snap.release && inst.options.snap.release.call(inst.element, event, $.extend(inst._uiHash(), { snapItem: inst.snapElements[i].item })));
+				}
+				inst.snapElements[i].snapping = false;
+				continue;
+			}
+
+			if (o.snapMode !== "inner") {
+				ts = Math.abs(t - y2) <= d;
+				bs = Math.abs(b - y1) <= d;
+				ls = Math.abs(l - x2) <= d;
+				rs = Math.abs(r - x1) <= d;
+				if (ts) {
+					ui.position.top = inst._convertPositionTo("relative", { top: t - inst.helperProportions.height, left: 0 }).top - inst.margins.top;
+				}
+				if (bs) {
+					ui.position.top = inst._convertPositionTo("relative", { top: b, left: 0 }).top - inst.margins.top;
+				}
+				if (ls) {
+					ui.position.left = inst._convertPositionTo("relative", { top: 0, left: l - inst.helperProportions.width }).left - inst.margins.left;
+				}
+				if (rs) {
+					ui.position.left = inst._convertPositionTo("relative", { top: 0, left: r }).left - inst.margins.left;
+				}
+			}
+
+			first = (ts || bs || ls || rs);
+
+			if (o.snapMode !== "outer") {
+				ts = Math.abs(t - y1) <= d;
+				bs = Math.abs(b - y2) <= d;
+				ls = Math.abs(l - x1) <= d;
+				rs = Math.abs(r - x2) <= d;
+				if (ts) {
+					ui.position.top = inst._convertPositionTo("relative", { top: t, left: 0 }).top - inst.margins.top;
+				}
+				if (bs) {
+					ui.position.top = inst._convertPositionTo("relative", { top: b - inst.helperProportions.height, left: 0 }).top - inst.margins.top;
+				}
+				if (ls) {
+					ui.position.left = inst._convertPositionTo("relative", { top: 0, left: l }).left - inst.margins.left;
+				}
+				if (rs) {
+					ui.position.left = inst._convertPositionTo("relative", { top: 0, left: r - inst.helperProportions.width }).left - inst.margins.left;
+				}
+			}
+
+			if (!inst.snapElements[i].snapping && (ts || bs || ls || rs || first)) {
+				(inst.options.snap.snap && inst.options.snap.snap.call(inst.element, event, $.extend(inst._uiHash(), { snapItem: inst.snapElements[i].item })));
+			}
+			inst.snapElements[i].snapping = (ts || bs || ls || rs || first);
+
+		}
+
+	}
+});
+
+$.ui.plugin.add("draggable", "stack", {
+	start: function( event, ui, instance ) {
+		var min,
+			o = instance.options,
+			group = $.makeArray($(o.stack)).sort(function(a, b) {
+				return (parseInt($(a).css("zIndex"), 10) || 0) - (parseInt($(b).css("zIndex"), 10) || 0);
+			});
+
+		if (!group.length) { return; }
+
+		min = parseInt($(group[0]).css("zIndex"), 10) || 0;
+		$(group).each(function(i) {
+			$(this).css("zIndex", min + i);
+		});
+		this.css("zIndex", (min + group.length));
+	}
+});
+
+$.ui.plugin.add("draggable", "zIndex", {
+	start: function( event, ui, instance ) {
+		var t = $( ui.helper ),
+			o = instance.options;
+
+		if (t.css("zIndex")) {
+			o._zIndex = t.css("zIndex");
+		}
+		t.css("zIndex", o.zIndex);
+	},
+	stop: function( event, ui, instance ) {
+		var o = instance.options;
+
+		if (o._zIndex) {
+			$(ui.helper).css("zIndex", o._zIndex);
+		}
+	}
+});
+
+return $.ui.draggable;
+
+}));
+;
+/*!
+ * jQuery UI Resizable 1.11.1
+ * http://jqueryui.com
+ *
+ * Copyright 2014 jQuery Foundation and other contributors
+ * Released under the MIT license.
+ * http://jquery.org/license
+ *
+ * http://api.jqueryui.com/resizable/
+ */
+(function( factory ) {
+	if ( typeof define === "function" && define.amd ) {
+
+		// AMD. Register as an anonymous module.
+		define([
+			"jquery",
+			"./core",
+			"./mouse",
+			"./widget"
+		], factory );
+	} else {
+
+		// Browser globals
+		factory( jQuery );
+	}
+}(function( $ ) {
+
+$.widget("ui.resizable", $.ui.mouse, {
+	version: "1.11.1",
+	widgetEventPrefix: "resize",
+	options: {
+		alsoResize: false,
+		animate: false,
+		animateDuration: "slow",
+		animateEasing: "swing",
+		aspectRatio: false,
+		autoHide: false,
+		containment: false,
+		ghost: false,
+		grid: false,
+		handles: "e,s,se",
+		helper: false,
+		maxHeight: null,
+		maxWidth: null,
+		minHeight: 10,
+		minWidth: 10,
+		// See #7960
+		zIndex: 90,
+
+		// callbacks
+		resize: null,
+		start: null,
+		stop: null
+	},
+
+	_num: function( value ) {
+		return parseInt( value, 10 ) || 0;
+	},
+
+	_isNumber: function( value ) {
+		return !isNaN( parseInt( value, 10 ) );
+	},
+
+	_hasScroll: function( el, a ) {
+
+		if ( $( el ).css( "overflow" ) === "hidden") {
+			return false;
+		}
+
+		var scroll = ( a && a === "left" ) ? "scrollLeft" : "scrollTop",
+			has = false;
+
+		if ( el[ scroll ] > 0 ) {
+			return true;
+		}
+
+		// TODO: determine which cases actually cause this to happen
+		// if the element doesn't have the scroll set, see if it's possible to
+		// set the scroll
+		el[ scroll ] = 1;
+		has = ( el[ scroll ] > 0 );
+		el[ scroll ] = 0;
+		return has;
+	},
+
+	_create: function() {
+
+		var n, i, handle, axis, hname,
+			that = this,
+			o = this.options;
+		this.element.addClass("ui-resizable");
+
+		$.extend(this, {
+			_aspectRatio: !!(o.aspectRatio),
+			aspectRatio: o.aspectRatio,
+			originalElement: this.element,
+			_proportionallyResizeElements: [],
+			_helper: o.helper || o.ghost || o.animate ? o.helper || "ui-resizable-helper" : null
+		});
+
+		// Wrap the element if it cannot hold child nodes
+		if (this.element[0].nodeName.match(/canvas|textarea|input|select|button|img/i)) {
+
+			this.element.wrap(
+				$("<div class='ui-wrapper' style='overflow: hidden;'></div>").css({
+					position: this.element.css("position"),
+					width: this.element.outerWidth(),
+					height: this.element.outerHeight(),
+					top: this.element.css("top"),
+					left: this.element.css("left")
+				})
+			);
+
+			this.element = this.element.parent().data(
+				"ui-resizable", this.element.resizable( "instance" )
+			);
+
+			this.elementIsWrapper = true;
+
+			this.element.css({
+				marginLeft: this.originalElement.css("marginLeft"),
+				marginTop: this.originalElement.css("marginTop"),
+				marginRight: this.originalElement.css("marginRight"),
+				marginBottom: this.originalElement.css("marginBottom")
+			});
+			this.originalElement.css({
+				marginLeft: 0,
+				marginTop: 0,
+				marginRight: 0,
+				marginBottom: 0
+			});
+			// support: Safari
+			// Prevent Safari textarea resize
+			this.originalResizeStyle = this.originalElement.css("resize");
+			this.originalElement.css("resize", "none");
+
+			this._proportionallyResizeElements.push( this.originalElement.css({
+				position: "static",
+				zoom: 1,
+				display: "block"
+			}) );
+
+			// support: IE9
+			// avoid IE jump (hard set the margin)
+			this.originalElement.css({ margin: this.originalElement.css("margin") });
+
+			this._proportionallyResize();
+		}
+
+		this.handles = o.handles ||
+			( !$(".ui-resizable-handle", this.element).length ?
+				"e,s,se" : {
+					n: ".ui-resizable-n",
+					e: ".ui-resizable-e",
+					s: ".ui-resizable-s",
+					w: ".ui-resizable-w",
+					se: ".ui-resizable-se",
+					sw: ".ui-resizable-sw",
+					ne: ".ui-resizable-ne",
+					nw: ".ui-resizable-nw"
+				} );
+
+		if (this.handles.constructor === String) {
+
+			if ( this.handles === "all") {
+				this.handles = "n,e,s,w,se,sw,ne,nw";
+			}
+
+			n = this.handles.split(",");
+			this.handles = {};
+
+			for (i = 0; i < n.length; i++) {
+
+				handle = $.trim(n[i]);
+				hname = "ui-resizable-" + handle;
+				axis = $("<div class='ui-resizable-handle " + hname + "'></div>");
+
+				axis.css({ zIndex: o.zIndex });
+
+				// TODO : What's going on here?
+				if ("se" === handle) {
+					axis.addClass("ui-icon ui-icon-gripsmall-diagonal-se");
+				}
+
+				this.handles[handle] = ".ui-resizable-" + handle;
+				this.element.append(axis);
+			}
+
+		}
+
+		this._renderAxis = function(target) {
+
+			var i, axis, padPos, padWrapper;
+
+			target = target || this.element;
+
+			for (i in this.handles) {
+
+				if (this.handles[i].constructor === String) {
+					this.handles[i] = this.element.children( this.handles[ i ] ).first().show();
+				}
+
+				if (this.elementIsWrapper && this.originalElement[0].nodeName.match(/textarea|input|select|button/i)) {
+
+					axis = $(this.handles[i], this.element);
+
+					padWrapper = /sw|ne|nw|se|n|s/.test(i) ? axis.outerHeight() : axis.outerWidth();
+
+					padPos = [ "padding",
+						/ne|nw|n/.test(i) ? "Top" :
+						/se|sw|s/.test(i) ? "Bottom" :
+						/^e$/.test(i) ? "Right" : "Left" ].join("");
+
+					target.css(padPos, padWrapper);
+
+					this._proportionallyResize();
+
+				}
+
+				// TODO: What's that good for? There's not anything to be executed left
+				if (!$(this.handles[i]).length) {
+					continue;
+				}
+			}
+		};
+
+		// TODO: make renderAxis a prototype function
+		this._renderAxis(this.element);
+
+		this._handles = $(".ui-resizable-handle", this.element)
+			.disableSelection();
+
+		this._handles.mouseover(function() {
+			if (!that.resizing) {
+				if (this.className) {
+					axis = this.className.match(/ui-resizable-(se|sw|ne|nw|n|e|s|w)/i);
+				}
+				that.axis = axis && axis[1] ? axis[1] : "se";
+			}
+		});
+
+		if (o.autoHide) {
+			this._handles.hide();
+			$(this.element)
+				.addClass("ui-resizable-autohide")
+				.mouseenter(function() {
+					if (o.disabled) {
+						return;
+					}
+					$(this).removeClass("ui-resizable-autohide");
+					that._handles.show();
+				})
+				.mouseleave(function() {
+					if (o.disabled) {
+						return;
+					}
+					if (!that.resizing) {
+						$(this).addClass("ui-resizable-autohide");
+						that._handles.hide();
+					}
+				});
+		}
+
+		this._mouseInit();
+
+	},
+
+	_destroy: function() {
+
+		this._mouseDestroy();
+
+		var wrapper,
+			_destroy = function(exp) {
+				$(exp)
+					.removeClass("ui-resizable ui-resizable-disabled ui-resizable-resizing")
+					.removeData("resizable")
+					.removeData("ui-resizable")
+					.unbind(".resizable")
+					.find(".ui-resizable-handle")
+						.remove();
+			};
+
+		// TODO: Unwrap at same DOM position
+		if (this.elementIsWrapper) {
+			_destroy(this.element);
+			wrapper = this.element;
+			this.originalElement.css({
+				position: wrapper.css("position"),
+				width: wrapper.outerWidth(),
+				height: wrapper.outerHeight(),
+				top: wrapper.css("top"),
+				left: wrapper.css("left")
+			}).insertAfter( wrapper );
+			wrapper.remove();
+		}
+
+		this.originalElement.css("resize", this.originalResizeStyle);
+		_destroy(this.originalElement);
+
+		return this;
+	},
+
+	_mouseCapture: function(event) {
+		var i, handle,
+			capture = false;
+
+		for (i in this.handles) {
+			handle = $(this.handles[i])[0];
+			if (handle === event.target || $.contains(handle, event.target)) {
+				capture = true;
+			}
+		}
+
+		return !this.options.disabled && capture;
+	},
+
+	_mouseStart: function(event) {
+
+		var curleft, curtop, cursor,
+			o = this.options,
+			el = this.element;
+
+		this.resizing = true;
+
+		this._renderProxy();
+
+		curleft = this._num(this.helper.css("left"));
+		curtop = this._num(this.helper.css("top"));
+
+		if (o.containment) {
+			curleft += $(o.containment).scrollLeft() || 0;
+			curtop += $(o.containment).scrollTop() || 0;
+		}
+
+		this.offset = this.helper.offset();
+		this.position = { left: curleft, top: curtop };
+
+		this.size = this._helper ? {
+				width: this.helper.width(),
+				height: this.helper.height()
+			} : {
+				width: el.width(),
+				height: el.height()
+			};
+
+		this.originalSize = this._helper ? {
+				width: el.outerWidth(),
+				height: el.outerHeight()
+			} : {
+				width: el.width(),
+				height: el.height()
+			};
+
+		this.sizeDiff = {
+			width: el.outerWidth() - el.width(),
+			height: el.outerHeight() - el.height()
+		};
+
+		this.originalPosition = { left: curleft, top: curtop };
+		this.originalMousePosition = { left: event.pageX, top: event.pageY };
+
+		this.aspectRatio = (typeof o.aspectRatio === "number") ?
+			o.aspectRatio :
+			((this.originalSize.width / this.originalSize.height) || 1);
+
+		cursor = $(".ui-resizable-" + this.axis).css("cursor");
+		$("body").css("cursor", cursor === "auto" ? this.axis + "-resize" : cursor);
+
+		el.addClass("ui-resizable-resizing");
+		this._propagate("start", event);
+		return true;
+	},
+
+	_mouseDrag: function(event) {
+
+		var data, props,
+			smp = this.originalMousePosition,
+			a = this.axis,
+			dx = (event.pageX - smp.left) || 0,
+			dy = (event.pageY - smp.top) || 0,
+			trigger = this._change[a];
+
+		this._updatePrevProperties();
+
+		if (!trigger) {
+			return false;
+		}
+
+		data = trigger.apply(this, [ event, dx, dy ]);
+
+		this._updateVirtualBoundaries(event.shiftKey);
+		if (this._aspectRatio || event.shiftKey) {
+			data = this._updateRatio(data, event);
+		}
+
+		data = this._respectSize(data, event);
+
+		this._updateCache(data);
+
+		this._propagate("resize", event);
+
+		props = this._applyChanges();
+
+		if ( !this._helper && this._proportionallyResizeElements.length ) {
+			this._proportionallyResize();
+		}
+
+		if ( !$.isEmptyObject( props ) ) {
+			this._updatePrevProperties();
+			this._trigger( "resize", event, this.ui() );
+			this._applyChanges();
+		}
+
+		return false;
+	},
+
+	_mouseStop: function(event) {
+
+		this.resizing = false;
+		var pr, ista, soffseth, soffsetw, s, left, top,
+			o = this.options, that = this;
+
+		if (this._helper) {
+
+			pr = this._proportionallyResizeElements;
+			ista = pr.length && (/textarea/i).test(pr[0].nodeName);
+			soffseth = ista && this._hasScroll(pr[0], "left") ? 0 : that.sizeDiff.height;
+			soffsetw = ista ? 0 : that.sizeDiff.width;
+
+			s = {
+				width: (that.helper.width()  - soffsetw),
+				height: (that.helper.height() - soffseth)
+			};
+			left = (parseInt(that.element.css("left"), 10) +
+				(that.position.left - that.originalPosition.left)) || null;
+			top = (parseInt(that.element.css("top"), 10) +
+				(that.position.top - that.originalPosition.top)) || null;
+
+			if (!o.animate) {
+				this.element.css($.extend(s, { top: top, left: left }));
+			}
+
+			that.helper.height(that.size.height);
+			that.helper.width(that.size.width);
+
+			if (this._helper && !o.animate) {
+				this._proportionallyResize();
+			}
+		}
+
+		$("body").css("cursor", "auto");
+
+		this.element.removeClass("ui-resizable-resizing");
+
+		this._propagate("stop", event);
+
+		if (this._helper) {
+			this.helper.remove();
+		}
+
+		return false;
+
+	},
+
+	_updatePrevProperties: function() {
+		this.prevPosition = {
+			top: this.position.top,
+			left: this.position.left
+		};
+		this.prevSize = {
+			width: this.size.width,
+			height: this.size.height
+		};
+	},
+
+	_applyChanges: function() {
+		var props = {};
+
+		if ( this.position.top !== this.prevPosition.top ) {
+			props.top = this.position.top + "px";
+		}
+		if ( this.position.left !== this.prevPosition.left ) {
+			props.left = this.position.left + "px";
+		}
+		if ( this.size.width !== this.prevSize.width ) {
+			props.width = this.size.width + "px";
+		}
+		if ( this.size.height !== this.prevSize.height ) {
+			props.height = this.size.height + "px";
+		}
+
+		this.helper.css( props );
+
+		return props;
+	},
+
+	_updateVirtualBoundaries: function(forceAspectRatio) {
+		var pMinWidth, pMaxWidth, pMinHeight, pMaxHeight, b,
+			o = this.options;
+
+		b = {
+			minWidth: this._isNumber(o.minWidth) ? o.minWidth : 0,
+			maxWidth: this._isNumber(o.maxWidth) ? o.maxWidth : Infinity,
+			minHeight: this._isNumber(o.minHeight) ? o.minHeight : 0,
+			maxHeight: this._isNumber(o.maxHeight) ? o.maxHeight : Infinity
+		};
+
+		if (this._aspectRatio || forceAspectRatio) {
+			pMinWidth = b.minHeight * this.aspectRatio;
+			pMinHeight = b.minWidth / this.aspectRatio;
+			pMaxWidth = b.maxHeight * this.aspectRatio;
+			pMaxHeight = b.maxWidth / this.aspectRatio;
+
+			if (pMinWidth > b.minWidth) {
+				b.minWidth = pMinWidth;
+			}
+			if (pMinHeight > b.minHeight) {
+				b.minHeight = pMinHeight;
+			}
+			if (pMaxWidth < b.maxWidth) {
+				b.maxWidth = pMaxWidth;
+			}
+			if (pMaxHeight < b.maxHeight) {
+				b.maxHeight = pMaxHeight;
+			}
+		}
+		this._vBoundaries = b;
+	},
+
+	_updateCache: function(data) {
+		this.offset = this.helper.offset();
+		if (this._isNumber(data.left)) {
+			this.position.left = data.left;
+		}
+		if (this._isNumber(data.top)) {
+			this.position.top = data.top;
+		}
+		if (this._isNumber(data.height)) {
+			this.size.height = data.height;
+		}
+		if (this._isNumber(data.width)) {
+			this.size.width = data.width;
+		}
+	},
+
+	_updateRatio: function( data ) {
+
+		var cpos = this.position,
+			csize = this.size,
+			a = this.axis;
+
+		if (this._isNumber(data.height)) {
+			data.width = (data.height * this.aspectRatio);
+		} else if (this._isNumber(data.width)) {
+			data.height = (data.width / this.aspectRatio);
+		}
+
+		if (a === "sw") {
+			data.left = cpos.left + (csize.width - data.width);
+			data.top = null;
+		}
+		if (a === "nw") {
+			data.top = cpos.top + (csize.height - data.height);
+			data.left = cpos.left + (csize.width - data.width);
+		}
+
+		return data;
+	},
+
+	_respectSize: function( data ) {
+
+		var o = this._vBoundaries,
+			a = this.axis,
+			ismaxw = this._isNumber(data.width) && o.maxWidth && (o.maxWidth < data.width),
+			ismaxh = this._isNumber(data.height) && o.maxHeight && (o.maxHeight < data.height),
+			isminw = this._isNumber(data.width) && o.minWidth && (o.minWidth > data.width),
+			isminh = this._isNumber(data.height) && o.minHeight && (o.minHeight > data.height),
+			dw = this.originalPosition.left + this.originalSize.width,
+			dh = this.position.top + this.size.height,
+			cw = /sw|nw|w/.test(a), ch = /nw|ne|n/.test(a);
+		if (isminw) {
+			data.width = o.minWidth;
+		}
+		if (isminh) {
+			data.height = o.minHeight;
+		}
+		if (ismaxw) {
+			data.width = o.maxWidth;
+		}
+		if (ismaxh) {
+			data.height = o.maxHeight;
+		}
+
+		if (isminw && cw) {
+			data.left = dw - o.minWidth;
+		}
+		if (ismaxw && cw) {
+			data.left = dw - o.maxWidth;
+		}
+		if (isminh && ch) {
+			data.top = dh - o.minHeight;
+		}
+		if (ismaxh && ch) {
+			data.top = dh - o.maxHeight;
+		}
+
+		// Fixing jump error on top/left - bug #2330
+		if (!data.width && !data.height && !data.left && data.top) {
+			data.top = null;
+		} else if (!data.width && !data.height && !data.top && data.left) {
+			data.left = null;
+		}
+
+		return data;
+	},
+
+	_getPaddingPlusBorderDimensions: function( element ) {
+		var i = 0,
+			widths = [],
+			borders = [
+				element.css( "borderTopWidth" ),
+				element.css( "borderRightWidth" ),
+				element.css( "borderBottomWidth" ),
+				element.css( "borderLeftWidth" )
+			],
+			paddings = [
+				element.css( "paddingTop" ),
+				element.css( "paddingRight" ),
+				element.css( "paddingBottom" ),
+				element.css( "paddingLeft" )
+			];
+
+		for ( ; i < 4; i++ ) {
+			widths[ i ] = ( parseInt( borders[ i ], 10 ) || 0 );
+			widths[ i ] += ( parseInt( paddings[ i ], 10 ) || 0 );
+		}
+
+		return {
+			height: widths[ 0 ] + widths[ 2 ],
+			width: widths[ 1 ] + widths[ 3 ]
+		};
+	},
+
+	_proportionallyResize: function() {
+
+		if (!this._proportionallyResizeElements.length) {
+			return;
+		}
+
+		var prel,
+			i = 0,
+			element = this.helper || this.element;
+
+		for ( ; i < this._proportionallyResizeElements.length; i++) {
+
+			prel = this._proportionallyResizeElements[i];
+
+			// TODO: Seems like a bug to cache this.outerDimensions
+			// considering that we are in a loop.
+			if (!this.outerDimensions) {
+				this.outerDimensions = this._getPaddingPlusBorderDimensions( prel );
+			}
+
+			prel.css({
+				height: (element.height() - this.outerDimensions.height) || 0,
+				width: (element.width() - this.outerDimensions.width) || 0
+			});
+
+		}
+
+	},
+
+	_renderProxy: function() {
+
+		var el = this.element, o = this.options;
+		this.elementOffset = el.offset();
+
+		if (this._helper) {
+
+			this.helper = this.helper || $("<div style='overflow:hidden;'></div>");
+
+			this.helper.addClass(this._helper).css({
+				width: this.element.outerWidth() - 1,
+				height: this.element.outerHeight() - 1,
+				position: "absolute",
+				left: this.elementOffset.left + "px",
+				top: this.elementOffset.top + "px",
+				zIndex: ++o.zIndex //TODO: Don't modify option
+			});
+
+			this.helper
+				.appendTo("body")
+				.disableSelection();
+
+		} else {
+			this.helper = this.element;
+		}
+
+	},
+
+	_change: {
+		e: function(event, dx) {
+			return { width: this.originalSize.width + dx };
+		},
+		w: function(event, dx) {
+			var cs = this.originalSize, sp = this.originalPosition;
+			return { left: sp.left + dx, width: cs.width - dx };
+		},
+		n: function(event, dx, dy) {
+			var cs = this.originalSize, sp = this.originalPosition;
+			return { top: sp.top + dy, height: cs.height - dy };
+		},
+		s: function(event, dx, dy) {
+			return { height: this.originalSize.height + dy };
+		},
+		se: function(event, dx, dy) {
+			return $.extend(this._change.s.apply(this, arguments),
+				this._change.e.apply(this, [ event, dx, dy ]));
+		},
+		sw: function(event, dx, dy) {
+			return $.extend(this._change.s.apply(this, arguments),
+				this._change.w.apply(this, [ event, dx, dy ]));
+		},
+		ne: function(event, dx, dy) {
+			return $.extend(this._change.n.apply(this, arguments),
+				this._change.e.apply(this, [ event, dx, dy ]));
+		},
+		nw: function(event, dx, dy) {
+			return $.extend(this._change.n.apply(this, arguments),
+				this._change.w.apply(this, [ event, dx, dy ]));
+		}
+	},
+
+	_propagate: function(n, event) {
+		$.ui.plugin.call(this, n, [ event, this.ui() ]);
+		(n !== "resize" && this._trigger(n, event, this.ui()));
+	},
+
+	plugins: {},
+
+	ui: function() {
+		return {
+			originalElement: this.originalElement,
+			element: this.element,
+			helper: this.helper,
+			position: this.position,
+			size: this.size,
+			originalSize: this.originalSize,
+			originalPosition: this.originalPosition
+		};
+	}
+
+});
+
+/*
+ * Resizable Extensions
+ */
+
+$.ui.plugin.add("resizable", "animate", {
+
+	stop: function( event ) {
+		var that = $(this).resizable( "instance" ),
+			o = that.options,
+			pr = that._proportionallyResizeElements,
+			ista = pr.length && (/textarea/i).test(pr[0].nodeName),
+			soffseth = ista && that._hasScroll(pr[0], "left") ? 0 : that.sizeDiff.height,
+			soffsetw = ista ? 0 : that.sizeDiff.width,
+			style = { width: (that.size.width - soffsetw), height: (that.size.height - soffseth) },
+			left = (parseInt(that.element.css("left"), 10) +
+				(that.position.left - that.originalPosition.left)) || null,
+			top = (parseInt(that.element.css("top"), 10) +
+				(that.position.top - that.originalPosition.top)) || null;
+
+		that.element.animate(
+			$.extend(style, top && left ? { top: top, left: left } : {}), {
+				duration: o.animateDuration,
+				easing: o.animateEasing,
+				step: function() {
+
+					var data = {
+						width: parseInt(that.element.css("width"), 10),
+						height: parseInt(that.element.css("height"), 10),
+						top: parseInt(that.element.css("top"), 10),
+						left: parseInt(that.element.css("left"), 10)
+					};
+
+					if (pr && pr.length) {
+						$(pr[0]).css({ width: data.width, height: data.height });
+					}
+
+					// propagating resize, and updating values for each animation step
+					that._updateCache(data);
+					that._propagate("resize", event);
+
+				}
+			}
+		);
+	}
+
+});
+
+$.ui.plugin.add( "resizable", "containment", {
+
+	start: function() {
+		var element, p, co, ch, cw, width, height,
+			that = $( this ).resizable( "instance" ),
+			o = that.options,
+			el = that.element,
+			oc = o.containment,
+			ce = ( oc instanceof $ ) ? oc.get( 0 ) : ( /parent/.test( oc ) ) ? el.parent().get( 0 ) : oc;
+
+		if ( !ce ) {
+			return;
+		}
+
+		that.containerElement = $( ce );
+
+		if ( /document/.test( oc ) || oc === document ) {
+			that.containerOffset = {
+				left: 0,
+				top: 0
+			};
+			that.containerPosition = {
+				left: 0,
+				top: 0
+			};
+
+			that.parentData = {
+				element: $( document ),
+				left: 0,
+				top: 0,
+				width: $( document ).width(),
+				height: $( document ).height() || document.body.parentNode.scrollHeight
+			};
+		} else {
+			element = $( ce );
+			p = [];
+			$([ "Top", "Right", "Left", "Bottom" ]).each(function( i, name ) {
+				p[ i ] = that._num( element.css( "padding" + name ) );
+			});
+
+			that.containerOffset = element.offset();
+			that.containerPosition = element.position();
+			that.containerSize = {
+				height: ( element.innerHeight() - p[ 3 ] ),
+				width: ( element.innerWidth() - p[ 1 ] )
+			};
+
+			co = that.containerOffset;
+			ch = that.containerSize.height;
+			cw = that.containerSize.width;
+			width = ( that._hasScroll ( ce, "left" ) ? ce.scrollWidth : cw );
+			height = ( that._hasScroll ( ce ) ? ce.scrollHeight : ch ) ;
+
+			that.parentData = {
+				element: ce,
+				left: co.left,
+				top: co.top,
+				width: width,
+				height: height
+			};
+		}
+	},
+
+	resize: function( event ) {
+		var woset, hoset, isParent, isOffsetRelative,
+			that = $( this ).resizable( "instance" ),
+			o = that.options,
+			co = that.containerOffset,
+			cp = that.position,
+			pRatio = that._aspectRatio || event.shiftKey,
+			cop = {
+				top: 0,
+				left: 0
+			},
+			ce = that.containerElement,
+			continueResize = true;
+
+		if ( ce[ 0 ] !== document && ( /static/ ).test( ce.css( "position" ) ) ) {
+			cop = co;
+		}
+
+		if ( cp.left < ( that._helper ? co.left : 0 ) ) {
+			that.size.width = that.size.width +
+				( that._helper ?
+					( that.position.left - co.left ) :
+					( that.position.left - cop.left ) );
+
+			if ( pRatio ) {
+				that.size.height = that.size.width / that.aspectRatio;
+				continueResize = false;
+			}
+			that.position.left = o.helper ? co.left : 0;
+		}
+
+		if ( cp.top < ( that._helper ? co.top : 0 ) ) {
+			that.size.height = that.size.height +
+				( that._helper ?
+					( that.position.top - co.top ) :
+					that.position.top );
+
+			if ( pRatio ) {
+				that.size.width = that.size.height * that.aspectRatio;
+				continueResize = false;
+			}
+			that.position.top = that._helper ? co.top : 0;
+		}
+
+		isParent = that.containerElement.get( 0 ) === that.element.parent().get( 0 );
+		isOffsetRelative = /relative|absolute/.test( that.containerElement.css( "position" ) );
+
+		if ( isParent && isOffsetRelative ) {
+			that.offset.left = that.parentData.left + that.position.left;
+			that.offset.top = that.parentData.top + that.position.top;
+		} else {
+			that.offset.left = that.element.offset().left;
+			that.offset.top = that.element.offset().top;
+		}
+
+		woset = Math.abs( that.sizeDiff.width +
+			(that._helper ?
+				that.offset.left - cop.left :
+				(that.offset.left - co.left)) );
+
+		hoset = Math.abs( that.sizeDiff.height +
+			(that._helper ?
+				that.offset.top - cop.top :
+				(that.offset.top - co.top)) );
+
+		if ( woset + that.size.width >= that.parentData.width ) {
+			that.size.width = that.parentData.width - woset;
+			if ( pRatio ) {
+				that.size.height = that.size.width / that.aspectRatio;
+				continueResize = false;
+			}
+		}
+
+		if ( hoset + that.size.height >= that.parentData.height ) {
+			that.size.height = that.parentData.height - hoset;
+			if ( pRatio ) {
+				that.size.width = that.size.height * that.aspectRatio;
+				continueResize = false;
+			}
+		}
+
+		if ( !continueResize ){
+			that.position.left = that.prevPosition.left;
+			that.position.top = that.prevPosition.top;
+			that.size.width = that.prevSize.width;
+			that.size.height = that.prevSize.height;
+		}
+	},
+
+	stop: function() {
+		var that = $( this ).resizable( "instance" ),
+			o = that.options,
+			co = that.containerOffset,
+			cop = that.containerPosition,
+			ce = that.containerElement,
+			helper = $( that.helper ),
+			ho = helper.offset(),
+			w = helper.outerWidth() - that.sizeDiff.width,
+			h = helper.outerHeight() - that.sizeDiff.height;
+
+		if ( that._helper && !o.animate && ( /relative/ ).test( ce.css( "position" ) ) ) {
+			$( this ).css({
+				left: ho.left - cop.left - co.left,
+				width: w,
+				height: h
+			});
+		}
+
+		if ( that._helper && !o.animate && ( /static/ ).test( ce.css( "position" ) ) ) {
+			$( this ).css({
+				left: ho.left - cop.left - co.left,
+				width: w,
+				height: h
+			});
+		}
+	}
+});
+
+$.ui.plugin.add("resizable", "alsoResize", {
+
+	start: function() {
+		var that = $(this).resizable( "instance" ),
+			o = that.options,
+			_store = function(exp) {
+				$(exp).each(function() {
+					var el = $(this);
+					el.data("ui-resizable-alsoresize", {
+						width: parseInt(el.width(), 10), height: parseInt(el.height(), 10),
+						left: parseInt(el.css("left"), 10), top: parseInt(el.css("top"), 10)
+					});
+				});
+			};
+
+		if (typeof(o.alsoResize) === "object" && !o.alsoResize.parentNode) {
+			if (o.alsoResize.length) {
+				o.alsoResize = o.alsoResize[0];
+				_store(o.alsoResize);
+			} else {
+				$.each(o.alsoResize, function(exp) {
+					_store(exp);
+				});
+			}
+		} else {
+			_store(o.alsoResize);
+		}
+	},
+
+	resize: function(event, ui) {
+		var that = $(this).resizable( "instance" ),
+			o = that.options,
+			os = that.originalSize,
+			op = that.originalPosition,
+			delta = {
+				height: (that.size.height - os.height) || 0,
+				width: (that.size.width - os.width) || 0,
+				top: (that.position.top - op.top) || 0,
+				left: (that.position.left - op.left) || 0
+			},
+
+			_alsoResize = function(exp, c) {
+				$(exp).each(function() {
+					var el = $(this), start = $(this).data("ui-resizable-alsoresize"), style = {},
+						css = c && c.length ?
+							c :
+							el.parents(ui.originalElement[0]).length ?
+								[ "width", "height" ] :
+								[ "width", "height", "top", "left" ];
+
+					$.each(css, function(i, prop) {
+						var sum = (start[prop] || 0) + (delta[prop] || 0);
+						if (sum && sum >= 0) {
+							style[prop] = sum || null;
+						}
+					});
+
+					el.css(style);
+				});
+			};
+
+		if (typeof(o.alsoResize) === "object" && !o.alsoResize.nodeType) {
+			$.each(o.alsoResize, function(exp, c) {
+				_alsoResize(exp, c);
+			});
+		} else {
+			_alsoResize(o.alsoResize);
+		}
+	},
+
+	stop: function() {
+		$(this).removeData("resizable-alsoresize");
+	}
+});
+
+$.ui.plugin.add("resizable", "ghost", {
+
+	start: function() {
+
+		var that = $(this).resizable( "instance" ), o = that.options, cs = that.size;
+
+		that.ghost = that.originalElement.clone();
+		that.ghost
+			.css({
+				opacity: 0.25,
+				display: "block",
+				position: "relative",
+				height: cs.height,
+				width: cs.width,
+				margin: 0,
+				left: 0,
+				top: 0
+			})
+			.addClass("ui-resizable-ghost")
+			.addClass(typeof o.ghost === "string" ? o.ghost : "");
+
+		that.ghost.appendTo(that.helper);
+
+	},
+
+	resize: function() {
+		var that = $(this).resizable( "instance" );
+		if (that.ghost) {
+			that.ghost.css({
+				position: "relative",
+				height: that.size.height,
+				width: that.size.width
+			});
+		}
+	},
+
+	stop: function() {
+		var that = $(this).resizable( "instance" );
+		if (that.ghost && that.helper) {
+			that.helper.get(0).removeChild(that.ghost.get(0));
+		}
+	}
+
+});
+
+$.ui.plugin.add("resizable", "grid", {
+
+	resize: function() {
+		var outerDimensions,
+			that = $(this).resizable( "instance" ),
+			o = that.options,
+			cs = that.size,
+			os = that.originalSize,
+			op = that.originalPosition,
+			a = that.axis,
+			grid = typeof o.grid === "number" ? [ o.grid, o.grid ] : o.grid,
+			gridX = (grid[0] || 1),
+			gridY = (grid[1] || 1),
+			ox = Math.round((cs.width - os.width) / gridX) * gridX,
+			oy = Math.round((cs.height - os.height) / gridY) * gridY,
+			newWidth = os.width + ox,
+			newHeight = os.height + oy,
+			isMaxWidth = o.maxWidth && (o.maxWidth < newWidth),
+			isMaxHeight = o.maxHeight && (o.maxHeight < newHeight),
+			isMinWidth = o.minWidth && (o.minWidth > newWidth),
+			isMinHeight = o.minHeight && (o.minHeight > newHeight);
+
+		o.grid = grid;
+
+		if (isMinWidth) {
+			newWidth += gridX;
+		}
+		if (isMinHeight) {
+			newHeight += gridY;
+		}
+		if (isMaxWidth) {
+			newWidth -= gridX;
+		}
+		if (isMaxHeight) {
+			newHeight -= gridY;
+		}
+
+		if (/^(se|s|e)$/.test(a)) {
+			that.size.width = newWidth;
+			that.size.height = newHeight;
+		} else if (/^(ne)$/.test(a)) {
+			that.size.width = newWidth;
+			that.size.height = newHeight;
+			that.position.top = op.top - oy;
+		} else if (/^(sw)$/.test(a)) {
+			that.size.width = newWidth;
+			that.size.height = newHeight;
+			that.position.left = op.left - ox;
+		} else {
+			if ( newHeight - gridY <= 0 || newWidth - gridX <= 0) {
+				outerDimensions = that._getPaddingPlusBorderDimensions( this );
+			}
+
+			if ( newHeight - gridY > 0 ) {
+				that.size.height = newHeight;
+				that.position.top = op.top - oy;
+			} else {
+				newHeight = gridY - outerDimensions.height;
+				that.size.height = newHeight;
+				that.position.top = op.top + os.height - newHeight;
+			}
+			if ( newWidth - gridX > 0 ) {
+				that.size.width = newWidth;
+				that.position.left = op.left - ox;
+			} else {
+				newWidth = gridY - outerDimensions.height;
+				that.size.width = newWidth;
+				that.position.left = op.left + os.width - newWidth;
+			}
+		}
+	}
+
+});
+
+return $.ui.resizable;
+
+}));
+;
+/*!
+ * jQuery UI Button 1.11.1
+ * http://jqueryui.com
+ *
+ * Copyright 2014 jQuery Foundation and other contributors
+ * Released under the MIT license.
+ * http://jquery.org/license
+ *
+ * http://api.jqueryui.com/button/
+ */
+(function( factory ) {
+	if ( typeof define === "function" && define.amd ) {
+
+		// AMD. Register as an anonymous module.
+		define([
+			"jquery",
+			"./core",
+			"./widget"
+		], factory );
+	} else {
+
+		// Browser globals
+		factory( jQuery );
+	}
+}(function( $ ) {
+
+var lastActive,
+	baseClasses = "ui-button ui-widget ui-state-default ui-corner-all",
+	typeClasses = "ui-button-icons-only ui-button-icon-only ui-button-text-icons ui-button-text-icon-primary ui-button-text-icon-secondary ui-button-text-only",
+	formResetHandler = function() {
+		var form = $( this );
+		setTimeout(function() {
+			form.find( ":ui-button" ).button( "refresh" );
+		}, 1 );
+	},
+	radioGroup = function( radio ) {
+		var name = radio.name,
+			form = radio.form,
+			radios = $( [] );
+		if ( name ) {
+			name = name.replace( /'/g, "\\'" );
+			if ( form ) {
+				radios = $( form ).find( "[name='" + name + "'][type=radio]" );
+			} else {
+				radios = $( "[name='" + name + "'][type=radio]", radio.ownerDocument )
+					.filter(function() {
+						return !this.form;
+					});
+			}
+		}
+		return radios;
+	};
+
+$.widget( "ui.button", {
+	version: "1.11.1",
+	defaultElement: "<button>",
+	options: {
+		disabled: null,
+		text: true,
+		label: null,
+		icons: {
+			primary: null,
+			secondary: null
+		}
+	},
+	_create: function() {
+		this.element.closest( "form" )
+			.unbind( "reset" + this.eventNamespace )
+			.bind( "reset" + this.eventNamespace, formResetHandler );
+
+		if ( typeof this.options.disabled !== "boolean" ) {
+			this.options.disabled = !!this.element.prop( "disabled" );
+		} else {
+			this.element.prop( "disabled", this.options.disabled );
+		}
+
+		this._determineButtonType();
+		this.hasTitle = !!this.buttonElement.attr( "title" );
+
+		var that = this,
+			options = this.options,
+			toggleButton = this.type === "checkbox" || this.type === "radio",
+			activeClass = !toggleButton ? "ui-state-active" : "";
+
+		if ( options.label === null ) {
+			options.label = (this.type === "input" ? this.buttonElement.val() : this.buttonElement.html());
+		}
+
+		this._hoverable( this.buttonElement );
+
+		this.buttonElement
+			.addClass( baseClasses )
+			.attr( "role", "button" )
+			.bind( "mouseenter" + this.eventNamespace, function() {
+				if ( options.disabled ) {
+					return;
+				}
+				if ( this === lastActive ) {
+					$( this ).addClass( "ui-state-active" );
+				}
+			})
+			.bind( "mouseleave" + this.eventNamespace, function() {
+				if ( options.disabled ) {
+					return;
+				}
+				$( this ).removeClass( activeClass );
+			})
+			.bind( "click" + this.eventNamespace, function( event ) {
+				if ( options.disabled ) {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+				}
+			});
+
+		// Can't use _focusable() because the element that receives focus
+		// and the element that gets the ui-state-focus class are different
+		this._on({
+			focus: function() {
+				this.buttonElement.addClass( "ui-state-focus" );
+			},
+			blur: function() {
+				this.buttonElement.removeClass( "ui-state-focus" );
+			}
+		});
+
+		if ( toggleButton ) {
+			this.element.bind( "change" + this.eventNamespace, function() {
+				that.refresh();
+			});
+		}
+
+		if ( this.type === "checkbox" ) {
+			this.buttonElement.bind( "click" + this.eventNamespace, function() {
+				if ( options.disabled ) {
+					return false;
+				}
+			});
+		} else if ( this.type === "radio" ) {
+			this.buttonElement.bind( "click" + this.eventNamespace, function() {
+				if ( options.disabled ) {
+					return false;
+				}
+				$( this ).addClass( "ui-state-active" );
+				that.buttonElement.attr( "aria-pressed", "true" );
+
+				var radio = that.element[ 0 ];
+				radioGroup( radio )
+					.not( radio )
+					.map(function() {
+						return $( this ).button( "widget" )[ 0 ];
+					})
+					.removeClass( "ui-state-active" )
+					.attr( "aria-pressed", "false" );
+			});
+		} else {
+			this.buttonElement
+				.bind( "mousedown" + this.eventNamespace, function() {
+					if ( options.disabled ) {
+						return false;
+					}
+					$( this ).addClass( "ui-state-active" );
+					lastActive = this;
+					that.document.one( "mouseup", function() {
+						lastActive = null;
+					});
+				})
+				.bind( "mouseup" + this.eventNamespace, function() {
+					if ( options.disabled ) {
+						return false;
+					}
+					$( this ).removeClass( "ui-state-active" );
+				})
+				.bind( "keydown" + this.eventNamespace, function(event) {
+					if ( options.disabled ) {
+						return false;
+					}
+					if ( event.keyCode === $.ui.keyCode.SPACE || event.keyCode === $.ui.keyCode.ENTER ) {
+						$( this ).addClass( "ui-state-active" );
+					}
+				})
+				// see #8559, we bind to blur here in case the button element loses
+				// focus between keydown and keyup, it would be left in an "active" state
+				.bind( "keyup" + this.eventNamespace + " blur" + this.eventNamespace, function() {
+					$( this ).removeClass( "ui-state-active" );
+				});
+
+			if ( this.buttonElement.is("a") ) {
+				this.buttonElement.keyup(function(event) {
+					if ( event.keyCode === $.ui.keyCode.SPACE ) {
+						// TODO pass through original event correctly (just as 2nd argument doesn't work)
+						$( this ).click();
+					}
+				});
+			}
+		}
+
+		this._setOption( "disabled", options.disabled );
+		this._resetButton();
+	},
+
+	_determineButtonType: function() {
+		var ancestor, labelSelector, checked;
+
+		if ( this.element.is("[type=checkbox]") ) {
+			this.type = "checkbox";
+		} else if ( this.element.is("[type=radio]") ) {
+			this.type = "radio";
+		} else if ( this.element.is("input") ) {
+			this.type = "input";
+		} else {
+			this.type = "button";
+		}
+
+		if ( this.type === "checkbox" || this.type === "radio" ) {
+			// we don't search against the document in case the element
+			// is disconnected from the DOM
+			ancestor = this.element.parents().last();
+			labelSelector = "label[for='" + this.element.attr("id") + "']";
+			this.buttonElement = ancestor.find( labelSelector );
+			if ( !this.buttonElement.length ) {
+				ancestor = ancestor.length ? ancestor.siblings() : this.element.siblings();
+				this.buttonElement = ancestor.filter( labelSelector );
+				if ( !this.buttonElement.length ) {
+					this.buttonElement = ancestor.find( labelSelector );
+				}
+			}
+			this.element.addClass( "ui-helper-hidden-accessible" );
+
+			checked = this.element.is( ":checked" );
+			if ( checked ) {
+				this.buttonElement.addClass( "ui-state-active" );
+			}
+			this.buttonElement.prop( "aria-pressed", checked );
+		} else {
+			this.buttonElement = this.element;
+		}
+	},
+
+	widget: function() {
+		return this.buttonElement;
+	},
+
+	_destroy: function() {
+		this.element
+			.removeClass( "ui-helper-hidden-accessible" );
+		this.buttonElement
+			.removeClass( baseClasses + " ui-state-active " + typeClasses )
+			.removeAttr( "role" )
+			.removeAttr( "aria-pressed" )
+			.html( this.buttonElement.find(".ui-button-text").html() );
+
+		if ( !this.hasTitle ) {
+			this.buttonElement.removeAttr( "title" );
+		}
+	},
+
+	_setOption: function( key, value ) {
+		this._super( key, value );
+		if ( key === "disabled" ) {
+			this.widget().toggleClass( "ui-state-disabled", !!value );
+			this.element.prop( "disabled", !!value );
+			if ( value ) {
+				if ( this.type === "checkbox" || this.type === "radio" ) {
+					this.buttonElement.removeClass( "ui-state-focus" );
+				} else {
+					this.buttonElement.removeClass( "ui-state-focus ui-state-active" );
+				}
+			}
+			return;
+		}
+		this._resetButton();
+	},
+
+	refresh: function() {
+		//See #8237 & #8828
+		var isDisabled = this.element.is( "input, button" ) ? this.element.is( ":disabled" ) : this.element.hasClass( "ui-button-disabled" );
+
+		if ( isDisabled !== this.options.disabled ) {
+			this._setOption( "disabled", isDisabled );
+		}
+		if ( this.type === "radio" ) {
+			radioGroup( this.element[0] ).each(function() {
+				if ( $( this ).is( ":checked" ) ) {
+					$( this ).button( "widget" )
+						.addClass( "ui-state-active" )
+						.attr( "aria-pressed", "true" );
+				} else {
+					$( this ).button( "widget" )
+						.removeClass( "ui-state-active" )
+						.attr( "aria-pressed", "false" );
+				}
+			});
+		} else if ( this.type === "checkbox" ) {
+			if ( this.element.is( ":checked" ) ) {
+				this.buttonElement
+					.addClass( "ui-state-active" )
+					.attr( "aria-pressed", "true" );
+			} else {
+				this.buttonElement
+					.removeClass( "ui-state-active" )
+					.attr( "aria-pressed", "false" );
+			}
+		}
+	},
+
+	_resetButton: function() {
+		if ( this.type === "input" ) {
+			if ( this.options.label ) {
+				this.element.val( this.options.label );
+			}
+			return;
+		}
+		var buttonElement = this.buttonElement.removeClass( typeClasses ),
+			buttonText = $( "<span></span>", this.document[0] )
+				.addClass( "ui-button-text" )
+				.html( this.options.label )
+				.appendTo( buttonElement.empty() )
+				.text(),
+			icons = this.options.icons,
+			multipleIcons = icons.primary && icons.secondary,
+			buttonClasses = [];
+
+		if ( icons.primary || icons.secondary ) {
+			if ( this.options.text ) {
+				buttonClasses.push( "ui-button-text-icon" + ( multipleIcons ? "s" : ( icons.primary ? "-primary" : "-secondary" ) ) );
+			}
+
+			if ( icons.primary ) {
+				buttonElement.prepend( "<span class='ui-button-icon-primary ui-icon " + icons.primary + "'></span>" );
+			}
+
+			if ( icons.secondary ) {
+				buttonElement.append( "<span class='ui-button-icon-secondary ui-icon " + icons.secondary + "'></span>" );
+			}
+
+			if ( !this.options.text ) {
+				buttonClasses.push( multipleIcons ? "ui-button-icons-only" : "ui-button-icon-only" );
+
+				if ( !this.hasTitle ) {
+					buttonElement.attr( "title", $.trim( buttonText ) );
+				}
+			}
+		} else {
+			buttonClasses.push( "ui-button-text-only" );
+		}
+		buttonElement.addClass( buttonClasses.join( " " ) );
+	}
+});
+
+$.widget( "ui.buttonset", {
+	version: "1.11.1",
+	options: {
+		items: "button, input[type=button], input[type=submit], input[type=reset], input[type=checkbox], input[type=radio], a, :data(ui-button)"
+	},
+
+	_create: function() {
+		this.element.addClass( "ui-buttonset" );
+	},
+
+	_init: function() {
+		this.refresh();
+	},
+
+	_setOption: function( key, value ) {
+		if ( key === "disabled" ) {
+			this.buttons.button( "option", key, value );
+		}
+
+		this._super( key, value );
+	},
+
+	refresh: function() {
+		var rtl = this.element.css( "direction" ) === "rtl",
+			allButtons = this.element.find( this.options.items ),
+			existingButtons = allButtons.filter( ":ui-button" );
+
+		// Initialize new buttons
+		allButtons.not( ":ui-button" ).button();
+
+		// Refresh existing buttons
+		existingButtons.button( "refresh" );
+
+		this.buttons = allButtons
+			.map(function() {
+				return $( this ).button( "widget" )[ 0 ];
+			})
+				.removeClass( "ui-corner-all ui-corner-left ui-corner-right" )
+				.filter( ":first" )
+					.addClass( rtl ? "ui-corner-right" : "ui-corner-left" )
+				.end()
+				.filter( ":last" )
+					.addClass( rtl ? "ui-corner-left" : "ui-corner-right" )
+				.end()
+			.end();
+	},
+
+	_destroy: function() {
+		this.element.removeClass( "ui-buttonset" );
+		this.buttons
+			.map(function() {
+				return $( this ).button( "widget" )[ 0 ];
+			})
+				.removeClass( "ui-corner-left ui-corner-right" )
+			.end()
+			.button( "destroy" );
+	}
+});
+
+return $.ui.button;
+
+}));
+;
+/*!
+ * jQuery UI Dialog 1.11.1
+ * http://jqueryui.com
+ *
+ * Copyright 2014 jQuery Foundation and other contributors
+ * Released under the MIT license.
+ * http://jquery.org/license
+ *
+ * http://api.jqueryui.com/dialog/
+ */
+(function( factory ) {
+	if ( typeof define === "function" && define.amd ) {
+
+		// AMD. Register as an anonymous module.
+		define([
+			"jquery",
+			"./core",
+			"./widget",
+			"./button",
+			"./draggable",
+			"./mouse",
+			"./position",
+			"./resizable"
+		], factory );
+	} else {
+
+		// Browser globals
+		factory( jQuery );
+	}
+}(function( $ ) {
+
+return $.widget( "ui.dialog", {
+	version: "1.11.1",
+	options: {
+		appendTo: "body",
+		autoOpen: true,
+		buttons: [],
+		closeOnEscape: true,
+		closeText: "Close",
+		dialogClass: "",
+		draggable: true,
+		hide: null,
+		height: "auto",
+		maxHeight: null,
+		maxWidth: null,
+		minHeight: 150,
+		minWidth: 150,
+		modal: false,
+		position: {
+			my: "center",
+			at: "center",
+			of: window,
+			collision: "fit",
+			// Ensure the titlebar is always visible
+			using: function( pos ) {
+				var topOffset = $( this ).css( pos ).offset().top;
+				if ( topOffset < 0 ) {
+					$( this ).css( "top", pos.top - topOffset );
+				}
+			}
+		},
+		resizable: true,
+		show: null,
+		title: null,
+		width: 300,
+
+		// callbacks
+		beforeClose: null,
+		close: null,
+		drag: null,
+		dragStart: null,
+		dragStop: null,
+		focus: null,
+		open: null,
+		resize: null,
+		resizeStart: null,
+		resizeStop: null
+	},
+
+	sizeRelatedOptions: {
+		buttons: true,
+		height: true,
+		maxHeight: true,
+		maxWidth: true,
+		minHeight: true,
+		minWidth: true,
+		width: true
+	},
+
+	resizableRelatedOptions: {
+		maxHeight: true,
+		maxWidth: true,
+		minHeight: true,
+		minWidth: true
+	},
+
+	_create: function() {
+		this.originalCss = {
+			display: this.element[ 0 ].style.display,
+			width: this.element[ 0 ].style.width,
+			minHeight: this.element[ 0 ].style.minHeight,
+			maxHeight: this.element[ 0 ].style.maxHeight,
+			height: this.element[ 0 ].style.height
+		};
+		this.originalPosition = {
+			parent: this.element.parent(),
+			index: this.element.parent().children().index( this.element )
+		};
+		this.originalTitle = this.element.attr( "title" );
+		this.options.title = this.options.title || this.originalTitle;
+
+		this._createWrapper();
+
+		this.element
+			.show()
+			.removeAttr( "title" )
+			.addClass( "ui-dialog-content ui-widget-content" )
+			.appendTo( this.uiDialog );
+
+		this._createTitlebar();
+		this._createButtonPane();
+
+		if ( this.options.draggable && $.fn.draggable ) {
+			this._makeDraggable();
+		}
+		if ( this.options.resizable && $.fn.resizable ) {
+			this._makeResizable();
+		}
+
+		this._isOpen = false;
+
+		this._trackFocus();
+	},
+
+	_init: function() {
+		if ( this.options.autoOpen ) {
+			this.open();
+		}
+	},
+
+	_appendTo: function() {
+		var element = this.options.appendTo;
+		if ( element && (element.jquery || element.nodeType) ) {
+			return $( element );
+		}
+		return this.document.find( element || "body" ).eq( 0 );
+	},
+
+	_destroy: function() {
+		var next,
+			originalPosition = this.originalPosition;
+
+		this._destroyOverlay();
+
+		this.element
+			.removeUniqueId()
+			.removeClass( "ui-dialog-content ui-widget-content" )
+			.css( this.originalCss )
+			// Without detaching first, the following becomes really slow
+			.detach();
+
+		this.uiDialog.stop( true, true ).remove();
+
+		if ( this.originalTitle ) {
+			this.element.attr( "title", this.originalTitle );
+		}
+
+		next = originalPosition.parent.children().eq( originalPosition.index );
+		// Don't try to place the dialog next to itself (#8613)
+		if ( next.length && next[ 0 ] !== this.element[ 0 ] ) {
+			next.before( this.element );
+		} else {
+			originalPosition.parent.append( this.element );
+		}
+	},
+
+	widget: function() {
+		return this.uiDialog;
+	},
+
+	disable: $.noop,
+	enable: $.noop,
+
+	close: function( event ) {
+		var activeElement,
+			that = this;
+
+		if ( !this._isOpen || this._trigger( "beforeClose", event ) === false ) {
+			return;
+		}
+
+		this._isOpen = false;
+		this._focusedElement = null;
+		this._destroyOverlay();
+		this._untrackInstance();
+
+		if ( !this.opener.filter( ":focusable" ).focus().length ) {
+
+			// support: IE9
+			// IE9 throws an "Unspecified error" accessing document.activeElement from an <iframe>
+			try {
+				activeElement = this.document[ 0 ].activeElement;
+
+				// Support: IE9, IE10
+				// If the <body> is blurred, IE will switch windows, see #4520
+				if ( activeElement && activeElement.nodeName.toLowerCase() !== "body" ) {
+
+					// Hiding a focused element doesn't trigger blur in WebKit
+					// so in case we have nothing to focus on, explicitly blur the active element
+					// https://bugs.webkit.org/show_bug.cgi?id=47182
+					$( activeElement ).blur();
+				}
+			} catch ( error ) {}
+		}
+
+		this._hide( this.uiDialog, this.options.hide, function() {
+			that._trigger( "close", event );
+		});
+	},
+
+	isOpen: function() {
+		return this._isOpen;
+	},
+
+	moveToTop: function() {
+		this._moveToTop();
+	},
+
+	_moveToTop: function( event, silent ) {
+		var moved = false,
+			zIndicies = this.uiDialog.siblings( ".ui-front:visible" ).map(function() {
+				return +$( this ).css( "z-index" );
+			}).get(),
+			zIndexMax = Math.max.apply( null, zIndicies );
+
+		if ( zIndexMax >= +this.uiDialog.css( "z-index" ) ) {
+			this.uiDialog.css( "z-index", zIndexMax + 1 );
+			moved = true;
+		}
+
+		if ( moved && !silent ) {
+			this._trigger( "focus", event );
+		}
+		return moved;
+	},
+
+	open: function() {
+		var that = this;
+		if ( this._isOpen ) {
+			if ( this._moveToTop() ) {
+				this._focusTabbable();
+			}
+			return;
+		}
+
+		this._isOpen = true;
+		this.opener = $( this.document[ 0 ].activeElement );
+
+		this._size();
+		this._position();
+		this._createOverlay();
+		this._moveToTop( null, true );
+
+		// Ensure the overlay is moved to the top with the dialog, but only when
+		// opening. The overlay shouldn't move after the dialog is open so that
+		// modeless dialogs opened after the modal dialog stack properly.
+		if ( this.overlay ) {
+			this.overlay.css( "z-index", this.uiDialog.css( "z-index" ) - 1 );
+		}
+
+		this._show( this.uiDialog, this.options.show, function() {
+			that._focusTabbable();
+			that._trigger( "focus" );
+		});
+
+		// Track the dialog immediately upon openening in case a focus event
+		// somehow occurs outside of the dialog before an element inside the
+		// dialog is focused (#10152)
+		this._makeFocusTarget();
+
+		this._trigger( "open" );
+	},
+
+	_focusTabbable: function() {
+		// Set focus to the first match:
+		// 1. An element that was focused previously
+		// 2. First element inside the dialog matching [autofocus]
+		// 3. Tabbable element inside the content element
+		// 4. Tabbable element inside the buttonpane
+		// 5. The close button
+		// 6. The dialog itself
+		var hasFocus = this._focusedElement;
+		if ( !hasFocus ) {
+			hasFocus = this.element.find( "[autofocus]" );
+		}
+		if ( !hasFocus.length ) {
+			hasFocus = this.element.find( ":tabbable" );
+		}
+		if ( !hasFocus.length ) {
+			hasFocus = this.uiDialogButtonPane.find( ":tabbable" );
+		}
+		if ( !hasFocus.length ) {
+			hasFocus = this.uiDialogTitlebarClose.filter( ":tabbable" );
+		}
+		if ( !hasFocus.length ) {
+			hasFocus = this.uiDialog;
+		}
+		hasFocus.eq( 0 ).focus();
+	},
+
+	_keepFocus: function( event ) {
+		function checkFocus() {
+			var activeElement = this.document[0].activeElement,
+				isActive = this.uiDialog[0] === activeElement ||
+					$.contains( this.uiDialog[0], activeElement );
+			if ( !isActive ) {
+				this._focusTabbable();
+			}
+		}
+		event.preventDefault();
+		checkFocus.call( this );
+		// support: IE
+		// IE <= 8 doesn't prevent moving focus even with event.preventDefault()
+		// so we check again later
+		this._delay( checkFocus );
+	},
+
+	_createWrapper: function() {
+		this.uiDialog = $("<div>")
+			.addClass( "ui-dialog ui-widget ui-widget-content ui-corner-all ui-front " +
+				this.options.dialogClass )
+			.hide()
+			.attr({
+				// Setting tabIndex makes the div focusable
+				tabIndex: -1,
+				role: "dialog"
+			})
+			.appendTo( this._appendTo() );
+
+		this._on( this.uiDialog, {
+			keydown: function( event ) {
+				if ( this.options.closeOnEscape && !event.isDefaultPrevented() && event.keyCode &&
+						event.keyCode === $.ui.keyCode.ESCAPE ) {
+					event.preventDefault();
+					this.close( event );
+					return;
+				}
+
+				// prevent tabbing out of dialogs
+				if ( event.keyCode !== $.ui.keyCode.TAB || event.isDefaultPrevented() ) {
+					return;
+				}
+				var tabbables = this.uiDialog.find( ":tabbable" ),
+					first = tabbables.filter( ":first" ),
+					last = tabbables.filter( ":last" );
+
+				if ( ( event.target === last[0] || event.target === this.uiDialog[0] ) && !event.shiftKey ) {
+					this._delay(function() {
+						first.focus();
+					});
+					event.preventDefault();
+				} else if ( ( event.target === first[0] || event.target === this.uiDialog[0] ) && event.shiftKey ) {
+					this._delay(function() {
+						last.focus();
+					});
+					event.preventDefault();
+				}
+			},
+			mousedown: function( event ) {
+				if ( this._moveToTop( event ) ) {
+					this._focusTabbable();
+				}
+			}
+		});
+
+		// We assume that any existing aria-describedby attribute means
+		// that the dialog content is marked up properly
+		// otherwise we brute force the content as the description
+		if ( !this.element.find( "[aria-describedby]" ).length ) {
+			this.uiDialog.attr({
+				"aria-describedby": this.element.uniqueId().attr( "id" )
+			});
+		}
+	},
+
+	_createTitlebar: function() {
+		var uiDialogTitle;
+
+		this.uiDialogTitlebar = $( "<div>" )
+			.addClass( "ui-dialog-titlebar ui-widget-header ui-corner-all ui-helper-clearfix" )
+			.prependTo( this.uiDialog );
+		this._on( this.uiDialogTitlebar, {
+			mousedown: function( event ) {
+				// Don't prevent click on close button (#8838)
+				// Focusing a dialog that is partially scrolled out of view
+				// causes the browser to scroll it into view, preventing the click event
+				if ( !$( event.target ).closest( ".ui-dialog-titlebar-close" ) ) {
+					// Dialog isn't getting focus when dragging (#8063)
+					this.uiDialog.focus();
+				}
+			}
+		});
+
+		// support: IE
+		// Use type="button" to prevent enter keypresses in textboxes from closing the
+		// dialog in IE (#9312)
+		this.uiDialogTitlebarClose = $( "<button type='button'></button>" )
+			.button({
+				label: this.options.closeText,
+				icons: {
+					primary: "ui-icon-closethick"
+				},
+				text: false
+			})
+			.addClass( "ui-dialog-titlebar-close" )
+			.appendTo( this.uiDialogTitlebar );
+		this._on( this.uiDialogTitlebarClose, {
+			click: function( event ) {
+				event.preventDefault();
+				this.close( event );
+			}
+		});
+
+		uiDialogTitle = $( "<span>" )
+			.uniqueId()
+			.addClass( "ui-dialog-title" )
+			.prependTo( this.uiDialogTitlebar );
+		this._title( uiDialogTitle );
+
+		this.uiDialog.attr({
+			"aria-labelledby": uiDialogTitle.attr( "id" )
+		});
+	},
+
+	_title: function( title ) {
+		if ( !this.options.title ) {
+			title.html( "&#160;" );
+		}
+		title.text( this.options.title );
+	},
+
+	_createButtonPane: function() {
+		this.uiDialogButtonPane = $( "<div>" )
+			.addClass( "ui-dialog-buttonpane ui-widget-content ui-helper-clearfix" );
+
+		this.uiButtonSet = $( "<div>" )
+			.addClass( "ui-dialog-buttonset" )
+			.appendTo( this.uiDialogButtonPane );
+
+		this._createButtons();
+	},
+
+	_createButtons: function() {
+		var that = this,
+			buttons = this.options.buttons;
+
+		// if we already have a button pane, remove it
+		this.uiDialogButtonPane.remove();
+		this.uiButtonSet.empty();
+
+		if ( $.isEmptyObject( buttons ) || ($.isArray( buttons ) && !buttons.length) ) {
+			this.uiDialog.removeClass( "ui-dialog-buttons" );
+			return;
+		}
+
+		$.each( buttons, function( name, props ) {
+			var click, buttonOptions;
+			props = $.isFunction( props ) ?
+				{ click: props, text: name } :
+				props;
+			// Default to a non-submitting button
+			props = $.extend( { type: "button" }, props );
+			// Change the context for the click callback to be the main element
+			click = props.click;
+			props.click = function() {
+				click.apply( that.element[ 0 ], arguments );
+			};
+			buttonOptions = {
+				icons: props.icons,
+				text: props.showText
+			};
+			delete props.icons;
+			delete props.showText;
+			$( "<button></button>", props )
+				.button( buttonOptions )
+				.appendTo( that.uiButtonSet );
+		});
+		this.uiDialog.addClass( "ui-dialog-buttons" );
+		this.uiDialogButtonPane.appendTo( this.uiDialog );
+	},
+
+	_makeDraggable: function() {
+		var that = this,
+			options = this.options;
+
+		function filteredUi( ui ) {
+			return {
+				position: ui.position,
+				offset: ui.offset
+			};
+		}
+
+		this.uiDialog.draggable({
+			cancel: ".ui-dialog-content, .ui-dialog-titlebar-close",
+			handle: ".ui-dialog-titlebar",
+			containment: "document",
+			start: function( event, ui ) {
+				$( this ).addClass( "ui-dialog-dragging" );
+				that._blockFrames();
+				that._trigger( "dragStart", event, filteredUi( ui ) );
+			},
+			drag: function( event, ui ) {
+				that._trigger( "drag", event, filteredUi( ui ) );
+			},
+			stop: function( event, ui ) {
+				var left = ui.offset.left - that.document.scrollLeft(),
+					top = ui.offset.top - that.document.scrollTop();
+
+				options.position = {
+					my: "left top",
+					at: "left" + (left >= 0 ? "+" : "") + left + " " +
+						"top" + (top >= 0 ? "+" : "") + top,
+					of: that.window
+				};
+				$( this ).removeClass( "ui-dialog-dragging" );
+				that._unblockFrames();
+				that._trigger( "dragStop", event, filteredUi( ui ) );
+			}
+		});
+	},
+
+	_makeResizable: function() {
+		var that = this,
+			options = this.options,
+			handles = options.resizable,
+			// .ui-resizable has position: relative defined in the stylesheet
+			// but dialogs have to use absolute or fixed positioning
+			position = this.uiDialog.css("position"),
+			resizeHandles = typeof handles === "string" ?
+				handles	:
+				"n,e,s,w,se,sw,ne,nw";
+
+		function filteredUi( ui ) {
+			return {
+				originalPosition: ui.originalPosition,
+				originalSize: ui.originalSize,
+				position: ui.position,
+				size: ui.size
+			};
+		}
+
+		this.uiDialog.resizable({
+			cancel: ".ui-dialog-content",
+			containment: "document",
+			alsoResize: this.element,
+			maxWidth: options.maxWidth,
+			maxHeight: options.maxHeight,
+			minWidth: options.minWidth,
+			minHeight: this._minHeight(),
+			handles: resizeHandles,
+			start: function( event, ui ) {
+				$( this ).addClass( "ui-dialog-resizing" );
+				that._blockFrames();
+				that._trigger( "resizeStart", event, filteredUi( ui ) );
+			},
+			resize: function( event, ui ) {
+				that._trigger( "resize", event, filteredUi( ui ) );
+			},
+			stop: function( event, ui ) {
+				var offset = that.uiDialog.offset(),
+					left = offset.left - that.document.scrollLeft(),
+					top = offset.top - that.document.scrollTop();
+
+				options.height = that.uiDialog.height();
+				options.width = that.uiDialog.width();
+				options.position = {
+					my: "left top",
+					at: "left" + (left >= 0 ? "+" : "") + left + " " +
+						"top" + (top >= 0 ? "+" : "") + top,
+					of: that.window
+				};
+				$( this ).removeClass( "ui-dialog-resizing" );
+				that._unblockFrames();
+				that._trigger( "resizeStop", event, filteredUi( ui ) );
+			}
+		})
+		.css( "position", position );
+	},
+
+	_trackFocus: function() {
+		this._on( this.widget(), {
+			focusin: function( event ) {
+				this._makeFocusTarget();
+				this._focusedElement = $( event.target );
+			}
+		});
+	},
+
+	_makeFocusTarget: function() {
+		this._untrackInstance();
+		this._trackingInstances().unshift( this );
+	},
+
+	_untrackInstance: function() {
+		var instances = this._trackingInstances(),
+			exists = $.inArray( this, instances );
+		if ( exists !== -1 ) {
+			instances.splice( exists, 1 );
+		}
+	},
+
+	_trackingInstances: function() {
+		var instances = this.document.data( "ui-dialog-instances" );
+		if ( !instances ) {
+			instances = [];
+			this.document.data( "ui-dialog-instances", instances );
+		}
+		return instances;
+	},
+
+	_minHeight: function() {
+		var options = this.options;
+
+		return options.height === "auto" ?
+			options.minHeight :
+			Math.min( options.minHeight, options.height );
+	},
+
+	_position: function() {
+		// Need to show the dialog to get the actual offset in the position plugin
+		var isVisible = this.uiDialog.is( ":visible" );
+		if ( !isVisible ) {
+			this.uiDialog.show();
+		}
+		this.uiDialog.position( this.options.position );
+		if ( !isVisible ) {
+			this.uiDialog.hide();
+		}
+	},
+
+	_setOptions: function( options ) {
+		var that = this,
+			resize = false,
+			resizableOptions = {};
+
+		$.each( options, function( key, value ) {
+			that._setOption( key, value );
+
+			if ( key in that.sizeRelatedOptions ) {
+				resize = true;
+			}
+			if ( key in that.resizableRelatedOptions ) {
+				resizableOptions[ key ] = value;
+			}
+		});
+
+		if ( resize ) {
+			this._size();
+			this._position();
+		}
+		if ( this.uiDialog.is( ":data(ui-resizable)" ) ) {
+			this.uiDialog.resizable( "option", resizableOptions );
+		}
+	},
+
+	_setOption: function( key, value ) {
+		var isDraggable, isResizable,
+			uiDialog = this.uiDialog;
+
+		if ( key === "dialogClass" ) {
+			uiDialog
+				.removeClass( this.options.dialogClass )
+				.addClass( value );
+		}
+
+		if ( key === "disabled" ) {
+			return;
+		}
+
+		this._super( key, value );
+
+		if ( key === "appendTo" ) {
+			this.uiDialog.appendTo( this._appendTo() );
+		}
+
+		if ( key === "buttons" ) {
+			this._createButtons();
+		}
+
+		if ( key === "closeText" ) {
+			this.uiDialogTitlebarClose.button({
+				// Ensure that we always pass a string
+				label: "" + value
+			});
+		}
+
+		if ( key === "draggable" ) {
+			isDraggable = uiDialog.is( ":data(ui-draggable)" );
+			if ( isDraggable && !value ) {
+				uiDialog.draggable( "destroy" );
+			}
+
+			if ( !isDraggable && value ) {
+				this._makeDraggable();
+			}
+		}
+
+		if ( key === "position" ) {
+			this._position();
+		}
+
+		if ( key === "resizable" ) {
+			// currently resizable, becoming non-resizable
+			isResizable = uiDialog.is( ":data(ui-resizable)" );
+			if ( isResizable && !value ) {
+				uiDialog.resizable( "destroy" );
+			}
+
+			// currently resizable, changing handles
+			if ( isResizable && typeof value === "string" ) {
+				uiDialog.resizable( "option", "handles", value );
+			}
+
+			// currently non-resizable, becoming resizable
+			if ( !isResizable && value !== false ) {
+				this._makeResizable();
+			}
+		}
+
+		if ( key === "title" ) {
+			this._title( this.uiDialogTitlebar.find( ".ui-dialog-title" ) );
+		}
+	},
+
+	_size: function() {
+		// If the user has resized the dialog, the .ui-dialog and .ui-dialog-content
+		// divs will both have width and height set, so we need to reset them
+		var nonContentHeight, minContentHeight, maxContentHeight,
+			options = this.options;
+
+		// Reset content sizing
+		this.element.show().css({
+			width: "auto",
+			minHeight: 0,
+			maxHeight: "none",
+			height: 0
+		});
+
+		if ( options.minWidth > options.width ) {
+			options.width = options.minWidth;
+		}
+
+		// reset wrapper sizing
+		// determine the height of all the non-content elements
+		nonContentHeight = this.uiDialog.css({
+				height: "auto",
+				width: options.width
+			})
+			.outerHeight();
+		minContentHeight = Math.max( 0, options.minHeight - nonContentHeight );
+		maxContentHeight = typeof options.maxHeight === "number" ?
+			Math.max( 0, options.maxHeight - nonContentHeight ) :
+			"none";
+
+		if ( options.height === "auto" ) {
+			this.element.css({
+				minHeight: minContentHeight,
+				maxHeight: maxContentHeight,
+				height: "auto"
+			});
+		} else {
+			this.element.height( Math.max( 0, options.height - nonContentHeight ) );
+		}
+
+		if ( this.uiDialog.is( ":data(ui-resizable)" ) ) {
+			this.uiDialog.resizable( "option", "minHeight", this._minHeight() );
+		}
+	},
+
+	_blockFrames: function() {
+		this.iframeBlocks = this.document.find( "iframe" ).map(function() {
+			var iframe = $( this );
+
+			return $( "<div>" )
+				.css({
+					position: "absolute",
+					width: iframe.outerWidth(),
+					height: iframe.outerHeight()
+				})
+				.appendTo( iframe.parent() )
+				.offset( iframe.offset() )[0];
+		});
+	},
+
+	_unblockFrames: function() {
+		if ( this.iframeBlocks ) {
+			this.iframeBlocks.remove();
+			delete this.iframeBlocks;
+		}
+	},
+
+	_allowInteraction: function( event ) {
+		if ( $( event.target ).closest( ".ui-dialog" ).length ) {
+			return true;
+		}
+
+		// TODO: Remove hack when datepicker implements
+		// the .ui-front logic (#8989)
+		return !!$( event.target ).closest( ".ui-datepicker" ).length;
+	},
+
+	_createOverlay: function() {
+		if ( !this.options.modal ) {
+			return;
+		}
+
+		// We use a delay in case the overlay is created from an
+		// event that we're going to be cancelling (#2804)
+		var isOpening = true;
+		this._delay(function() {
+			isOpening = false;
+		});
+
+		if ( !this.document.data( "ui-dialog-overlays" ) ) {
+
+			// Prevent use of anchors and inputs
+			// Using _on() for an event handler shared across many instances is
+			// safe because the dialogs stack and must be closed in reverse order
+			this._on( this.document, {
+				focusin: function( event ) {
+					if ( isOpening ) {
+						return;
+					}
+
+					if ( !this._allowInteraction( event ) ) {
+						event.preventDefault();
+						this._trackingInstances()[ 0 ]._focusTabbable();
+					}
+				}
+			});
+		}
+
+		this.overlay = $( "<div>" )
+			.addClass( "ui-widget-overlay ui-front" )
+			.appendTo( this._appendTo() );
+		this._on( this.overlay, {
+			mousedown: "_keepFocus"
+		});
+		this.document.data( "ui-dialog-overlays",
+			(this.document.data( "ui-dialog-overlays" ) || 0) + 1 );
+	},
+
+	_destroyOverlay: function() {
+		if ( !this.options.modal ) {
+			return;
+		}
+
+		if ( this.overlay ) {
+			var overlays = this.document.data( "ui-dialog-overlays" ) - 1;
+
+			if ( !overlays ) {
+				this.document
+					.unbind( "focusin" )
+					.removeData( "ui-dialog-overlays" );
+			} else {
+				this.document.data( "ui-dialog-overlays", overlays );
+			}
+
+			this.overlay.remove();
+			this.overlay = null;
+		}
+	}
+});
+
+}));
+;
+/*!
  * jQuery UI Slider 1.11.1
  * http://jqueryui.com
  *
@@ -10925,6 +14933,2743 @@ return $.widget( "ui.slider", $.ui.mouse, {
 
 }));
 ;
+/*globals jQuery,Color */
+
+/*!
+ * ColorPicker
+ *
+ * Copyright (c) 2011-2013 Martijn W. van der Lee
+ * Licensed under the MIT.
+ */
+/* Full-featured colorpicker for jQueryUI with full theming support.
+ * Most images from jPicker by Christopher T. Tillman.
+ * Sourcecode created from scratch by Martijn W. van der Lee.
+ */
+
+;(function ($) {
+	"use strict";
+
+	var _colorpicker_index = 0,
+
+		_container_popup = '<div class="ui-colorpicker ui-colorpicker-dialog ui-dialog ui-widget ui-widget-content ui-corner-all" style="display: none;"></div>',
+		_container_inlineFrame = '<div class="ui-colorpicker ui-colorpicker-inline ui-dialog ui-widget ui-widget-content ui-corner-all"></div>',
+		_container_inline = '<div class="ui-colorpicker ui-colorpicker-inline"></div>',
+
+		_intToHex = function (dec) {
+			var result = Math.floor(dec).toString(16);
+			if (result.length === 1) {
+				result = ('0' + result);
+			}
+			return result.toLowerCase();
+		},
+
+        _parseHex = function(color) {
+            var c,
+                m;
+
+            // {#}rrggbb
+            m = /^#?([a-fA-F0-9]{1,6})$/.exec(color);
+            if (m) {
+                c = parseInt(m[1], 16);
+                return new $.colorpicker.Color(
+					((c >> 16) & 0xFF) / 255,
+                    ((c >>  8) & 0xFF) / 255,
+                    (c & 0xFF) / 255
+				);
+            }
+
+            return new $.colorpicker.Color();
+        },
+
+		_layoutTable = function(layout, callback) {
+			var bitmap,
+				x, y,
+				width, height,
+				columns, rows,
+				index,
+				cell,
+				html,
+				w, h,
+				colspan,
+				walked;
+
+			layout.sort(function(a, b) {
+				if (a.pos[1] === b.pos[1]) {
+					return a.pos[0] - b.pos[0];
+				}
+				return a.pos[1] - b.pos[1];
+			});
+
+			// Determine dimensions of the table
+			width = 0;
+			height = 0;
+			$.each (layout, function(index, part) {
+				width = Math.max(width, part.pos[0] + part.pos[2]);
+				height = Math.max(height, part.pos[1] + part.pos[3]);
+			});
+
+			// Initialize bitmap
+			bitmap = [];
+			for (x = 0; x < width; ++x) {
+				bitmap.push([]);
+			}
+
+			// Mark rows and columns which have layout assigned
+			rows	= [];
+			columns = [];
+			$.each(layout, function(index, part) {
+				// mark columns
+				for (x = 0; x < part.pos[2]; x += 1) {
+					columns[part.pos[0] + x] = true;
+				}
+				for (y = 0; y < part.pos[3]; y += 1) {
+					rows[part.pos[1] + y] = true;
+				}
+			});
+
+			// Generate the table
+			html = '';
+			cell = layout[index = 0];
+			for (y = 0; y < height; ++y) {
+				html += '<tr>';
+                x = 0;
+                while (x < width) {
+					if (typeof cell !== 'undefined' && x === cell.pos[0] && y === cell.pos[1]) {
+						// Create a "real" cell
+						html += callback(cell, x, y);
+
+						for (h = 0; h < cell.pos[3]; h +=1) {
+							for (w = 0; w < cell.pos[2]; w +=1) {
+								bitmap[x + w][y + h] = true;
+							}
+						}
+
+						x += cell.pos[2];
+						cell = layout[++index];
+					} else {
+						// Fill in the gaps
+						colspan = 0;
+						walked = false;
+
+						while (x < width && bitmap[x][y] === undefined && (cell === undefined || y < cell.pos[1] || (y === cell.pos[1] && x < cell.pos[0]))) {
+							if (columns[x] === true) {
+								colspan += 1;
+							}
+							walked = true;
+							x += 1;
+						}
+
+						if (colspan > 0) {
+							html += '<td colspan="'+colspan+'"></td>';
+						} else if (!walked) {
+							x += 1;
+						}
+					}
+				}
+				html += '</tr>';
+			}
+
+			return '<table cellspacing="0" cellpadding="0" border="0"><tbody>' + html + '</tbody></table>';
+		};
+
+	$.colorpicker = new function() {
+		this.regional = {
+			'':	{
+				ok:				'OK',
+				cancel:			'Cancel',
+				none:			'None',
+				button:			'Color',
+				title:			'Pick a color',
+				transparent:	'Transparent',
+				hsvH:			'H',
+				hsvS:			'S',
+				hsvV:			'V',
+				rgbR:			'R',
+				rgbG:			'G',
+				rgbB:			'B',
+				labL:			'L',
+				labA:			'a',
+				labB:			'b',
+				hslH:			'H',
+				hslS:			'S',
+				hslL:			'L',
+				cmykC:			'C',
+				cmykM:			'M',
+				cmykY:			'Y',
+				cmykK:			'K',
+				alphaA:			'A'
+			}
+		};
+
+		this.swatches = {
+			'html':	[
+				{name: 'black',					r: 0, g: 0, b: 0},
+				{name: 'dimgray',				r: 0.4117647058823529, g: 0.4117647058823529, b: 0.4117647058823529},
+				{name: 'gray',					r: 0.5019607843137255, g: 0.5019607843137255, b: 0.5019607843137255},
+				{name: 'darkgray',				r: 0.6627450980392157, g: 0.6627450980392157, b: 0.6627450980392157},
+				{name: 'silver',				r: 0.7529411764705882, g: 0.7529411764705882, b: 0.7529411764705882},
+				{name: 'lightgrey',				r: 0.8274509803921568, g: 0.8274509803921568, b: 0.8274509803921568},
+				{name: 'gainsboro',				r: 0.8627450980392157, g: 0.8627450980392157, b: 0.8627450980392157},
+				{name: 'whitesmoke',			r: 0.9607843137254902, g: 0.9607843137254902, b: 0.9607843137254902},
+				{name: 'white',					r: 1, g: 1, b: 1},
+				{name: 'rosybrown',				r: 0.7372549019607844, g: 0.5607843137254902, b: 0.5607843137254902},
+				{name: 'indianred',				r: 0.803921568627451, g: 0.3607843137254902, b: 0.3607843137254902},
+				{name: 'brown',					r: 0.6470588235294118, g: 0.16470588235294117, b: 0.16470588235294117},
+				{name: 'firebrick',				r: 0.6980392156862745, g: 0.13333333333333333, b: 0.13333333333333333},
+				{name: 'lightcoral',			r: 0.9411764705882353, g: 0.5019607843137255, b: 0.5019607843137255},
+				{name: 'maroon',				r: 0.5019607843137255, g: 0, b: 0},
+				{name: 'darkred',				r: 0.5450980392156862, g: 0, b: 0},
+				{name: 'red',					r: 1, g: 0, b: 0},
+				{name: 'snow',					r: 1, g: 0.9803921568627451, b: 0.9803921568627451},
+				{name: 'salmon',				r: 0.9803921568627451, g: 0.5019607843137255, b: 0.4470588235294118},
+				{name: 'mistyrose',				r: 1, g: 0.8941176470588236, b: 0.8823529411764706},
+				{name: 'tomato',				r: 1, g: 0.38823529411764707, b: 0.2784313725490196},
+				{name: 'darksalmon',			r: 0.9137254901960784, g: 0.5882352941176471, b: 0.47843137254901963},
+				{name: 'orangered',				r: 1, g: 0.27058823529411763, b: 0},
+				{name: 'coral',					r: 1, g: 0.4980392156862745, b: 0.3137254901960784},
+				{name: 'lightsalmon',			r: 1, g: 0.6274509803921569, b: 0.47843137254901963},
+				{name: 'sienna',				r: 0.6274509803921569, g: 0.3215686274509804, b: 0.17647058823529413},
+				{name: 'seashell',				r: 1, g: 0.9607843137254902, b: 0.9333333333333333},
+				{name: 'chocolate',				r: 0.8235294117647058, g: 0.4117647058823529, b: 0.11764705882352941},
+				{name: 'saddlebrown',			r: 0.5450980392156862, g: 0.27058823529411763, b: 0.07450980392156863},
+				{name: 'sandybrown',			r: 0.9568627450980393, g: 0.6431372549019608, b: 0.3764705882352941},
+				{name: 'peachpuff',				r: 1, g: 0.8549019607843137, b: 0.7254901960784313},
+				{name: 'peru',					r: 0.803921568627451, g: 0.5215686274509804, b: 0.24705882352941178},
+				{name: 'linen',					r: 0.9803921568627451, g: 0.9411764705882353, b: 0.9019607843137255},
+				{name: 'darkorange',			r: 1, g: 0.5490196078431373, b: 0},
+				{name: 'bisque',				r: 1, g: 0.8941176470588236, b: 0.7686274509803922},
+				{name: 'burlywood',				r: 0.8705882352941177, g: 0.7215686274509804, b: 0.5294117647058824},
+				{name: 'tan',					r: 0.8235294117647058, g: 0.7058823529411765, b: 0.5490196078431373},
+				{name: 'antiquewhite',			r: 0.9803921568627451, g: 0.9215686274509803, b: 0.8431372549019608},
+				{name: 'navajowhite',			r: 1, g: 0.8705882352941177, b: 0.6784313725490196},
+				{name: 'blanchedalmond',		r: 1, g: 0.9215686274509803, b: 0.803921568627451},
+				{name: 'papayawhip',			r: 1, g: 0.9372549019607843, b: 0.8352941176470589},
+				{name: 'orange',				r: 1, g: 0.6470588235294118, b: 0},
+				{name: 'moccasin',				r: 1, g: 0.8941176470588236, b: 0.7098039215686275},
+				{name: 'wheat',					r: 0.9607843137254902, g: 0.8705882352941177, b: 0.7019607843137254},
+				{name: 'oldlace',				r: 0.9921568627450981, g: 0.9607843137254902, b: 0.9019607843137255},
+				{name: 'floralwhite',			r: 1, g: 0.9803921568627451, b: 0.9411764705882353},
+				{name: 'goldenrod',				r: 0.8549019607843137, g: 0.6470588235294118, b: 0.12549019607843137},
+				{name: 'darkgoldenrod',			r: 0.7215686274509804, g: 0.5254901960784314, b: 0.043137254901960784},
+				{name: 'cornsilk',				r: 1, g: 0.9725490196078431, b: 0.8627450980392157},
+				{name: 'gold',					r: 1, g: 0.8431372549019608, b: 0},
+				{name: 'palegoldenrod',			r: 0.9333333333333333, g: 0.9098039215686274, b: 0.6666666666666666},
+				{name: 'khaki',					r: 0.9411764705882353, g: 0.9019607843137255, b: 0.5490196078431373},
+				{name: 'lemonchiffon',			r: 1, g: 0.9803921568627451, b: 0.803921568627451},
+				{name: 'darkkhaki',				r: 0.7411764705882353, g: 0.7176470588235294, b: 0.4196078431372549},
+				{name: 'beige',					r: 0.9607843137254902, g: 0.9607843137254902, b: 0.8627450980392157},
+				{name: 'lightgoldenrodyellow',	r: 0.9803921568627451, g: 0.9803921568627451, b: 0.8235294117647058},
+				{name: 'olive',					r: 0.5019607843137255, g: 0.5019607843137255, b: 0},
+				{name: 'yellow',				r: 1, g: 1, b: 0},
+				{name: 'lightyellow',			r: 1, g: 1, b: 0.8784313725490196},
+				{name: 'ivory',					r: 1, g: 1, b: 0.9411764705882353},
+				{name: 'olivedrab',				r: 0.4196078431372549, g: 0.5568627450980392, b: 0.13725490196078433},
+				{name: 'yellowgreen',			r: 0.6039215686274509, g: 0.803921568627451, b: 0.19607843137254902},
+				{name: 'darkolivegreen',		r: 0.3333333333333333, g: 0.4196078431372549, b: 0.1843137254901961},
+				{name: 'greenyellow',			r: 0.6784313725490196, g: 1, b: 0.1843137254901961},
+				{name: 'lawngreen',				r: 0.48627450980392156, g: 0.9882352941176471, b: 0},
+				{name: 'chartreuse',			r: 0.4980392156862745, g: 1, b: 0},
+				{name: 'darkseagreen',			r: 0.5607843137254902, g: 0.7372549019607844, b: 0.5607843137254902},
+				{name: 'forestgreen',			r: 0.13333333333333333, g: 0.5450980392156862, b: 0.13333333333333333},
+				{name: 'limegreen',				r: 0.19607843137254902, g: 0.803921568627451, b: 0.19607843137254902},
+				{name: 'lightgreen',			r: 0.5647058823529412, g: 0.9333333333333333, b: 0.5647058823529412},
+				{name: 'palegreen',				r: 0.596078431372549, g: 0.984313725490196, b: 0.596078431372549},
+				{name: 'darkgreen',				r: 0, g: 0.39215686274509803, b: 0},
+				{name: 'green',					r: 0, g: 0.5019607843137255, b: 0},
+				{name: 'lime',					r: 0, g: 1, b: 0},
+				{name: 'honeydew',				r: 0.9411764705882353, g: 1, b: 0.9411764705882353},
+				{name: 'mediumseagreen',		r: 0.23529411764705882, g: 0.7019607843137254, b: 0.44313725490196076},
+				{name: 'seagreen',				r: 0.1803921568627451, g: 0.5450980392156862, b: 0.3411764705882353},
+				{name: 'springgreen',			r: 0, g: 1, b: 0.4980392156862745},
+				{name: 'mintcream',				r: 0.9607843137254902, g: 1, b: 0.9803921568627451},
+				{name: 'mediumspringgreen',		r: 0, g: 0.9803921568627451, b: 0.6039215686274509},
+				{name: 'mediumaquamarine',		r: 0.4, g: 0.803921568627451, b: 0.6666666666666666},
+				{name: 'aquamarine',			r: 0.4980392156862745, g: 1, b: 0.8313725490196079},
+				{name: 'turquoise',				r: 0.25098039215686274, g: 0.8784313725490196, b: 0.8156862745098039},
+				{name: 'lightseagreen',			r: 0.12549019607843137, g: 0.6980392156862745, b: 0.6666666666666666},
+				{name: 'mediumturquoise',		r: 0.2823529411764706, g: 0.8196078431372549, b: 0.8},
+				{name: 'darkslategray',			r: 0.1843137254901961, g: 0.30980392156862746, b: 0.30980392156862746},
+				{name: 'paleturquoise',			r: 0.6862745098039216, g: 0.9333333333333333, b: 0.9333333333333333},
+				{name: 'teal',					r: 0, g: 0.5019607843137255, b: 0.5019607843137255},
+				{name: 'darkcyan',				r: 0, g: 0.5450980392156862, b: 0.5450980392156862},
+				{name: 'darkturquoise',			r: 0, g: 0.807843137254902, b: 0.8196078431372549},
+				{name: 'aqua',					r: 0, g: 1, b: 1},
+				{name: 'cyan',					r: 0, g: 1, b: 1},
+				{name: 'lightcyan',				r: 0.8784313725490196, g: 1, b: 1},
+				{name: 'azure',					r: 0.9411764705882353, g: 1, b: 1},
+				{name: 'cadetblue',				r: 0.37254901960784315, g: 0.6196078431372549, b: 0.6274509803921569},
+				{name: 'powderblue',			r: 0.6901960784313725, g: 0.8784313725490196, b: 0.9019607843137255},
+				{name: 'lightblue',				r: 0.6784313725490196, g: 0.8470588235294118, b: 0.9019607843137255},
+				{name: 'deepskyblue',			r: 0, g: 0.7490196078431373, b: 1},
+				{name: 'skyblue',				r: 0.5294117647058824, g: 0.807843137254902, b: 0.9215686274509803},
+				{name: 'lightskyblue',			r: 0.5294117647058824, g: 0.807843137254902, b: 0.9803921568627451},
+				{name: 'steelblue',				r: 0.27450980392156865, g: 0.5098039215686274, b: 0.7058823529411765},
+				{name: 'aliceblue',				r: 0.9411764705882353, g: 0.9725490196078431, b: 1},
+				{name: 'dodgerblue',			r: 0.11764705882352941, g: 0.5647058823529412, b: 1},
+				{name: 'slategray',				r: 0.4392156862745098, g: 0.5019607843137255, b: 0.5647058823529412},
+				{name: 'lightslategray',		r: 0.4666666666666667, g: 0.5333333333333333, b: 0.6},
+				{name: 'lightsteelblue',		r: 0.6901960784313725, g: 0.7686274509803922, b: 0.8705882352941177},
+				{name: 'cornflowerblue',		r: 0.39215686274509803, g: 0.5843137254901961, b: 0.9294117647058824},
+				{name: 'royalblue',				r: 0.2549019607843137, g: 0.4117647058823529, b: 0.8823529411764706},
+				{name: 'midnightblue',			r: 0.09803921568627451, g: 0.09803921568627451, b: 0.4392156862745098},
+				{name: 'lavender',				r: 0.9019607843137255, g: 0.9019607843137255, b: 0.9803921568627451},
+				{name: 'navy',					r: 0, g: 0, b: 0.5019607843137255},
+				{name: 'darkblue',				r: 0, g: 0, b: 0.5450980392156862},
+				{name: 'mediumblue',			r: 0, g: 0, b: 0.803921568627451},
+				{name: 'blue',					r: 0, g: 0, b: 1},
+				{name: 'ghostwhite',			r: 0.9725490196078431, g: 0.9725490196078431, b: 1},
+				{name: 'darkslateblue',			r: 0.2823529411764706, g: 0.23921568627450981, b: 0.5450980392156862},
+				{name: 'slateblue',				r: 0.41568627450980394, g: 0.35294117647058826, b: 0.803921568627451},
+				{name: 'mediumslateblue',		r: 0.4823529411764706, g: 0.40784313725490196, b: 0.9333333333333333},
+				{name: 'mediumpurple',			r: 0.5764705882352941, g: 0.4392156862745098, b: 0.8588235294117647},
+				{name: 'blueviolet',			r: 0.5411764705882353, g: 0.16862745098039217, b: 0.8862745098039215},
+				{name: 'indigo',				r: 0.29411764705882354, g: 0, b: 0.5098039215686274},
+				{name: 'darkorchid',			r: 0.6, g: 0.19607843137254902, b: 0.8},
+				{name: 'darkviolet',			r: 0.5803921568627451, g: 0, b: 0.8274509803921568},
+				{name: 'mediumorchid',			r: 0.7294117647058823, g: 0.3333333333333333, b: 0.8274509803921568},
+				{name: 'thistle',				r: 0.8470588235294118, g: 0.7490196078431373, b: 0.8470588235294118},
+				{name: 'plum',					r: 0.8666666666666667, g: 0.6274509803921569, b: 0.8666666666666667},
+				{name: 'violet',				r: 0.9333333333333333, g: 0.5098039215686274, b: 0.9333333333333333},
+				{name: 'purple',				r: 0.5019607843137255, g: 0, b: 0.5019607843137255},
+				{name: 'darkmagenta',			r: 0.5450980392156862, g: 0, b: 0.5450980392156862},
+				{name: 'magenta',				r: 1, g: 0, b: 1},
+				{name: 'fuchsia',				r: 1, g: 0, b: 1},
+				{name: 'orchid',				r: 0.8549019607843137, g: 0.4392156862745098, b: 0.8392156862745098},
+				{name: 'mediumvioletred',		r: 0.7803921568627451, g: 0.08235294117647059, b: 0.5215686274509804},
+				{name: 'deeppink',				r: 1, g: 0.0784313725490196, b: 0.5764705882352941},
+				{name: 'hotpink',				r: 1, g: 0.4117647058823529, b: 0.7058823529411765},
+				{name: 'palevioletred',			r: 0.8588235294117647, g: 0.4392156862745098, b: 0.5764705882352941},
+				{name: 'lavenderblush',			r: 1, g: 0.9411764705882353, b: 0.9607843137254902},
+				{name: 'crimson',				r: 0.8627450980392157, g: 0.0784313725490196, b: 0.23529411764705882},
+				{name: 'pink',					r: 1, g: 0.7529411764705882, b: 0.796078431372549},
+				{name: 'lightpink',				r: 1, g: 0.7137254901960784, b: 0.7568627450980392}
+			]
+		};
+
+		this.writers = {
+			'#HEX':		function(color, that) {
+							return that._formatColor('#rxgxbx', color);
+						}
+		,	'#HEX3':	function(color, that) {
+							var hex3 = $.colorpicker.writers.HEX3(color);
+							return hex3 === false? false : '#'+hex3;
+						}
+		,	'HEX':		function(color, that) {
+							return that._formatColor('rxgxbx', color);
+						}
+		,	'HEX3':		function(color, that) {
+							var rgb = color.getRGB(),
+								r = Math.floor(rgb.r * 255),
+								g = Math.floor(rgb.g * 255),
+								b = Math.floor(rgb.b * 255);
+
+							if (((r >>> 4) === (r &= 0xf))
+							 && ((g >>> 4) === (g &= 0xf))
+							 && ((b >>> 4) === (b &= 0xf))) {
+								return r.toString(16)+g.toString(16)+b.toString(16);
+							}
+							return false;
+						}
+		,	'RGB':		function(color, that) {
+							return color.getAlpha() >= 1
+									? that._formatColor('rgb(rd,gd,bd)', color)
+									: false;
+						}
+		,	'RGBA':		function(color, that) {
+							return that._formatColor('rgba(rd,gd,bd,af)', color);
+						}
+		,	'RGB%':		function(color, that) {
+							return color.getAlpha() >= 1
+									? that._formatColor('rgb(rp%,gp%,bp%)', color)
+									: false;
+						}
+		,	'RGBA%':	function(color, that) {
+							return that._formatColor('rgba(rp%,gp%,bp%,af)', color);
+						}
+		,	'HSL':		function(color, that) {
+							return color.getAlpha() >= 1
+									? that._formatColor('hsl(hd,sd,vd)', color)
+									: false;
+						}
+		,	'HSLA':		function(color, that) {
+							return that._formatColor('hsla(hd,sd,vd,af)', color);
+						}
+		,	'HSL%':		function(color, that) {
+							return color.getAlpha() >= 1
+									? that._formatColor('hsl(hp%,sp%,vp%)', color)
+									: false;
+						}
+		,	'HSLA%':	function(color, that) {
+							return that._formatColor('hsla(hp%,sp%,vp%,af)', color);
+						}
+		,	'NAME':		function(color, that) {
+							return that._closestName(color);
+						}
+		,	'EXACT':	function(color, that) {		// @todo experimental. Implement a good fallback list
+							return that._exactName(color);
+						}
+		};
+
+		this.parsers = {
+			'':			function(color) {
+				            if (color === '') {
+								return new $.colorpicker.Color();
+							}
+						}
+		,	'NAME':		function(color, that) {
+							var c = that._getSwatch($.trim(color));
+							if (c) {
+								return new $.colorpicker.Color(c.r, c.g, c.b);
+							}
+						}
+		,	'RGBA':		function(color) {
+							var m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(\d+(?:\.\d+)?)\s*)?\)$/.exec(color);
+							if (m) {
+								return new $.colorpicker.Color(
+									m[1] / 255,
+									m[2] / 255,
+									m[3] / 255,
+									parseFloat(m[4])
+								);
+							}
+						}
+		,	'RGBA%':	function(color) {
+							var m = /^rgba?\(\s*(\d+(?:\.\d+)?)\%\s*,\s*(\d+(?:\.\d+)?)\%\s*,\s*(\d+(?:\.\d+)?)\%\s*(?:,\s*(\d+(?:\.\d+)?)\s*)?\)$/.exec(color);
+							if (m) {
+								return new $.colorpicker.Color(
+									m[1] / 100,
+									m[2] / 100,
+									m[3] / 100,
+									m[4] / 100
+								);
+							}
+						}
+		,	'HSLA':		function(color) {
+							var m = /^hsla?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(\d+(?:\.\d+)?)\s*)?\)$/.exec(color);
+							if (m) {
+								return (new $.colorpicker.Color()).setHSL(
+									m[1] / 255,
+									m[2] / 255,
+									m[3] / 255).setAlpha(parseFloat(m[4]));
+							}
+						}
+		,	'HSLA%':	function(color) {
+							var m = /^hsla?\(\s*(\d+(?:\.\d+)?)\%\s*,\s*(\d+(?:\.\d+)?)\%\s*,\s*(\d+(?:\.\d+)?)\%\s*(?:,\s*(\d+(?:\.\d+)?)\s*)?\)$/.exec(color);
+							if (m) {
+								return (new $.colorpicker.Color()).setHSL(
+									m[1] / 100,
+									m[2] / 100,
+									m[3] / 100).setAlpha(m[4] / 100);
+							}
+						}
+		,	'#HEX':		function(color) {
+							var m = /^#([a-fA-F0-9]{2})([a-fA-F0-9]{2})([a-fA-F0-9]{2})$/.exec(color);
+							if (m) {
+								return new $.colorpicker.Color(
+									parseInt(m[1], 16) / 255,
+									parseInt(m[2], 16) / 255,
+									parseInt(m[3], 16) / 255
+								);
+							}
+						}
+		,	'#HEX3':	function(color) {
+							var m = /^#([a-fA-F0-9])([a-fA-F0-9])([a-fA-F0-9])$/.exec(color);
+							if (m) {
+								return new $.colorpicker.Color(
+								   parseInt(String(m[1]) + m[1], 16) / 255,
+								   parseInt(String(m[2]) + m[2], 16) / 255,
+								   parseInt(String(m[3]) + m[3], 16) / 255
+								);
+							}
+						}
+		,	'HEX':		function(color) {
+							var m = /^([a-fA-F0-9]{2})([a-fA-F0-9]{2})([a-fA-F0-9]{2})$/.exec(color);
+							if (m) {
+								return new $.colorpicker.Color(
+									parseInt(m[1], 16) / 255,
+									parseInt(m[2], 16) / 255,
+									parseInt(m[3], 16) / 255
+								);
+							}
+						}
+		,	'HEX3':		function(color) {
+							var m = /^([a-fA-F0-9])([a-fA-F0-9])([a-fA-F0-9])$/.exec(color);
+							if (m) {
+								return new $.colorpicker.Color(
+								   parseInt(String(m[1]) + m[1], 16) / 255,
+								   parseInt(String(m[2]) + m[2], 16) / 255,
+								   parseInt(String(m[3]) + m[3], 16) / 255
+								);
+							}
+						}
+		};
+
+		this.partslists = {
+			'full':			['header', 'map', 'bar', 'hex', 'hsv', 'rgb', 'alpha', 'lab', 'cmyk', 'preview', 'swatches', 'footer'],
+			'popup':		['map', 'bar', 'hex', 'hsv', 'rgb', 'alpha', 'preview', 'footer'],
+			'draggable':	['header', 'map', 'bar', 'hex', 'hsv', 'rgb', 'alpha', 'preview', 'footer'],
+			'inline':		['map', 'bar', 'hex', 'hsv', 'rgb', 'alpha', 'preview']
+		};
+
+		this.limits = {
+			'websafe':		function(color) {
+								color.limit(6);
+							},
+			'nibble':		function(color) {
+								color.limit(16);
+							},
+			'binary':		function(color) {
+								color.limit(2);
+							},
+			'name':			function(color, that) {
+								var swatch = that._getSwatch(that._closestName(color));
+								color.setRGB(swatch.r, swatch.g, swatch.b);
+							}
+		};
+
+		this.parts = {
+			header: function (inst) {
+				var that	= this,
+					e		= null,
+					_html	=function() {
+						var title = inst.options.title || inst._getRegional('title'),
+							html = '<span class="ui-dialog-title">' + title + '</span>';
+
+						if (!inst.inline && inst.options.showCloseButton) {
+							html += '<a href="#" class="ui-dialog-titlebar-close ui-corner-all" role="button">'
+								+ '<span class="ui-icon ui-icon-closethick">close</span></a>';
+						}
+
+						return '<div class="ui-dialog-titlebar ui-widget-header ui-corner-all ui-helper-clearfix">' + html + '</div>';
+					};
+
+				this.init = function() {
+					e = $(_html()).prependTo(inst.dialog);
+
+					var close = $('.ui-dialog-titlebar-close', e);
+					inst._hoverable(close);
+					inst._focusable(close);
+					close.click(function(event) {
+						event.preventDefault();
+						inst.close(inst.options.revert);
+					});
+
+					if (!inst.inline && inst.options.draggable) {
+						inst.dialog.draggable({
+							handle: e
+						});
+					}
+				};
+			},
+
+			map: function (inst) {
+				var that	= this,
+					e		= null,
+					mousemove_timeout = null,
+					_mousedown, _mouseup, _mousemove, _html;
+
+				_mousedown = function (event) {
+					if (!inst.opened) {
+						return;
+					}
+
+					var div		= $('.ui-colorpicker-map-layer-pointer', e),
+						offset	= div.offset(),
+						width	= div.width(),
+						height	= div.height(),
+						x		= event.pageX - offset.left,
+						y		= event.pageY - offset.top;
+
+					if (x >= 0 && x < width && y >= 0 && y < height) {
+						event.stopImmediatePropagation();
+						event.preventDefault();
+						e.unbind('mousedown', _mousedown);
+						$(document).bind('mouseup', _mouseup);
+						$(document).bind('mousemove', _mousemove);
+						_mousemove(event);
+					}
+				};
+
+				_mouseup = function (event) {
+					event.stopImmediatePropagation();
+					event.preventDefault();
+					$(document).unbind('mouseup', _mouseup);
+					$(document).unbind('mousemove', _mousemove);
+					e.bind('mousedown', _mousedown);
+				};
+
+				_mousemove = function (event) {
+					event.stopImmediatePropagation();
+					event.preventDefault();
+
+					if (event.pageX === that.x && event.pageY === that.y) {
+						return;
+					}
+					that.x = event.pageX;
+					that.y = event.pageY;
+
+					var div = $('.ui-colorpicker-map-layer-pointer', e),
+						offset = div.offset(),
+						width = div.width(),
+						height = div.height(),
+						x = event.pageX - offset.left,
+						y = event.pageY - offset.top;
+
+					x = Math.max(0, Math.min(x / width, 1));
+					y = Math.max(0, Math.min(y / height, 1));
+
+					// interpret values
+					switch (inst.mode) {
+					case 'h':
+						inst.color.setHSV(null, x, 1 - y);
+						break;
+
+					case 's':
+					case 'a':
+						inst.color.setHSV(x, null, 1 - y);
+						break;
+
+					case 'v':
+						inst.color.setHSV(x, 1 - y, null);
+						break;
+
+					case 'r':
+						inst.color.setRGB(null, 1 - y, x);
+						break;
+
+					case 'g':
+						inst.color.setRGB(1 - y, null, x);
+						break;
+
+					case 'b':
+						inst.color.setRGB(x, 1 - y, null);
+						break;
+					}
+
+					inst._change();
+				};
+
+				_html = function () {
+					var html = '<div class="ui-colorpicker-map ui-colorpicker-map-'+(inst.options.part.map.size || 256)+' ui-colorpicker-border">'
+							+ '<span class="ui-colorpicker-map-layer-1">&nbsp;</span>'
+							+ '<span class="ui-colorpicker-map-layer-2">&nbsp;</span>'
+							+ (inst.options.alpha ? '<span class="ui-colorpicker-map-layer-alpha">&nbsp;</span>' : '')
+							+ '<span class="ui-colorpicker-map-layer-pointer"><span class="ui-colorpicker-map-pointer"></span></span></div>';
+					return html;
+				};
+
+				this.update = function () {
+					var step = ((inst.options.part.map.size || 256) * 65 / 64);
+
+					switch (inst.mode) {
+					case 'h':
+						$('.ui-colorpicker-map-layer-1', e).css({'background-position': '0 0', 'opacity': ''}).show();
+						$('.ui-colorpicker-map-layer-2', e).hide();
+						break;
+
+					case 's':
+					case 'a':
+						$('.ui-colorpicker-map-layer-1', e).css({'background-position': '0 '+(-step)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-map-layer-2', e).css({'background-position': '0 '+(-step*2)+'px', 'opacity': ''}).show();
+						break;
+
+					case 'v':
+						$(e).css('background-color', 'black');
+						$('.ui-colorpicker-map-layer-1', e).css({'background-position': '0 '+(-step*3)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-map-layer-2', e).hide();
+						break;
+
+					case 'r':
+						$('.ui-colorpicker-map-layer-1', e).css({'background-position': '0 '+(-step*4)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-map-layer-2', e).css({'background-position': '0 '+(-step*5)+'px', 'opacity': ''}).show();
+						break;
+
+					case 'g':
+						$('.ui-colorpicker-map-layer-1', e).css({'background-position': '0 '+(-step*6)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-map-layer-2', e).css({'background-position': '0 '+(-step*7)+'px', 'opacity': ''}).show();
+						break;
+
+					case 'b':
+						$('.ui-colorpicker-map-layer-1', e).css({'background-position': '0 '+(-step*8)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-map-layer-2', e).css({'background-position': '0 '+(-step*9)+'px', 'opacity': ''}).show();
+						break;
+					}
+					that.repaint();
+				};
+
+				this.repaint = function () {
+					var div = $('.ui-colorpicker-map-layer-pointer', e),
+						x = 0,
+						y = 0;
+
+					switch (inst.mode) {
+					case 'h':
+						x = inst.color.getHSV().s * div.width();
+						y = (1 - inst.color.getHSV().v) * div.width();
+						$(e).css('background-color', inst.color.copy().setHSV(null, 1, 1).toCSS());
+						break;
+
+					case 's':
+					case 'a':
+						x = inst.color.getHSV().h * div.width();
+						y = (1 - inst.color.getHSV().v) * div.width();
+						$('.ui-colorpicker-map-layer-2', e).css('opacity', 1 - inst.color.getHSV().s);
+						break;
+
+					case 'v':
+						x = inst.color.getHSV().h * div.width();
+						y = (1 - inst.color.getHSV().s) * div.width();
+						$('.ui-colorpicker-map-layer-1', e).css('opacity', inst.color.getHSV().v);
+						break;
+
+					case 'r':
+						x = inst.color.getRGB().b * div.width();
+						y = (1 - inst.color.getRGB().g) * div.width();
+						$('.ui-colorpicker-map-layer-2', e).css('opacity', inst.color.getRGB().r);
+						break;
+
+					case 'g':
+						x = inst.color.getRGB().b * div.width();
+						y = (1 - inst.color.getRGB().r) * div.width();
+						$('.ui-colorpicker-map-layer-2', e).css('opacity', inst.color.getRGB().g);
+						break;
+
+					case 'b':
+						x = inst.color.getRGB().r * div.width();
+						y = (1 - inst.color.getRGB().g) * div.width();
+						$('.ui-colorpicker-map-layer-2', e).css('opacity', inst.color.getRGB().b);
+						break;
+					}
+
+					if (inst.options.alpha) {
+						$('.ui-colorpicker-map-layer-alpha', e).css('opacity', 1 - inst.color.getAlpha());
+					}
+
+					$('.ui-colorpicker-map-pointer', e).css({
+						'left': x - 7,
+						'top': y - 7
+					});
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-map-container', inst.dialog));
+
+					e.bind('mousedown', _mousedown);
+				};
+			},
+
+			bar: function (inst) {
+				var that		= this,
+					e			= null,
+					_mousedown, _mouseup, _mousemove, _html;
+
+				_mousedown = function (event) {
+					if (!inst.opened) {
+						return;
+					}
+
+					var div		= $('.ui-colorpicker-bar-layer-pointer', e),
+						offset	= div.offset(),
+						width	= div.width(),
+						height	= div.height(),
+						x		= event.pageX - offset.left,
+						y		= event.pageY - offset.top;
+
+					if (x >= 0 && x < width && y >= 0 && y < height) {
+						event.stopImmediatePropagation();
+						event.preventDefault();
+						e.unbind('mousedown', _mousedown);
+						$(document).bind('mouseup', _mouseup);
+						$(document).bind('mousemove', _mousemove);
+						_mousemove(event);
+					}
+				};
+
+				_mouseup = function (event) {
+					event.stopImmediatePropagation();
+					event.preventDefault();
+					$(document).unbind('mouseup', _mouseup);
+					$(document).unbind('mousemove', _mousemove);
+					e.bind('mousedown', _mousedown);
+				};
+
+				_mousemove = function (event) {
+					event.stopImmediatePropagation();
+					event.preventDefault();
+
+					if (event.pageY === that.y) {
+						return;
+					}
+					that.y = event.pageY;
+
+					var div = $('.ui-colorpicker-bar-layer-pointer', e),
+						offset  = div.offset(),
+						height  = div.height(),
+						y = event.pageY - offset.top;
+
+					y = Math.max(0, Math.min(y / height, 1));
+
+					// interpret values
+					switch (inst.mode) {
+					case 'h':
+						inst.color.setHSV(1 - y, null, null);
+						break;
+
+					case 's':
+						inst.color.setHSV(null, 1 - y, null);
+						break;
+
+					case 'v':
+						inst.color.setHSV(null, null, 1 - y);
+						break;
+
+					case 'r':
+						inst.color.setRGB(1 - y, null, null);
+						break;
+
+					case 'g':
+						inst.color.setRGB(null, 1 - y, null);
+						break;
+
+					case 'b':
+						inst.color.setRGB(null, null, 1 - y);
+						break;
+
+					case 'a':
+						inst.color.setAlpha(1 - y);
+						break;
+					}
+
+					inst._change();
+				};
+
+				_html = function () {
+					var html = '<div class="ui-colorpicker-bar ui-colorpicker-bar-'+(inst.options.part.bar.size || 256)+'  ui-colorpicker-border">'
+							+ '<span class="ui-colorpicker-bar-layer-1">&nbsp;</span>'
+							+ '<span class="ui-colorpicker-bar-layer-2">&nbsp;</span>'
+							+ '<span class="ui-colorpicker-bar-layer-3">&nbsp;</span>'
+							+ '<span class="ui-colorpicker-bar-layer-4">&nbsp;</span>';
+
+					if (inst.options.alpha) {
+						html += '<span class="ui-colorpicker-bar-layer-alpha">&nbsp;</span>'
+							+ '<span class="ui-colorpicker-bar-layer-alphabar">&nbsp;</span>';
+					}
+
+					html += '<span class="ui-colorpicker-bar-layer-pointer"><span class="ui-colorpicker-bar-pointer"></span></span></div>';
+
+					return html;
+				};
+
+				this.update = function () {
+					var step = ((inst.options.part.bar.size || 256) * 65 / 64);
+
+					switch (inst.mode) {
+					case 'h':
+					case 's':
+					case 'v':
+					case 'r':
+					case 'g':
+					case 'b':
+						$('.ui-colorpicker-bar-layer-alpha', e).show();
+						$('.ui-colorpicker-bar-layer-alphabar', e).hide();
+						break;
+
+					case 'a':
+						$('.ui-colorpicker-bar-layer-alpha', e).hide();
+						$('.ui-colorpicker-bar-layer-alphabar', e).show();
+						break;
+					}
+
+					switch (inst.mode) {
+					case 'h':
+						$('.ui-colorpicker-bar-layer-1', e).css({'background-position': '0 0', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-2', e).hide();
+						$('.ui-colorpicker-bar-layer-3', e).hide();
+						$('.ui-colorpicker-bar-layer-4', e).hide();
+						break;
+
+					case 's':
+						$('.ui-colorpicker-bar-layer-1', e).css({'background-position': '0 '+(-step)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-2', e).css({'background-position': '0 '+(-step*2)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-3', e).hide();
+						$('.ui-colorpicker-bar-layer-4', e).hide();
+						break;
+
+					case 'v':
+						$('.ui-colorpicker-bar-layer-1', e).css({'background-position': '0 '+(-step*2)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-2', e).hide();
+						$('.ui-colorpicker-bar-layer-3', e).hide();
+						$('.ui-colorpicker-bar-layer-4', e).hide();
+						break;
+
+					case 'r':
+						$('.ui-colorpicker-bar-layer-1', e).css({'background-position': '0 '+(-step*6)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-2', e).css({'background-position': '0 '+(-step*5)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-3', e).css({'background-position': '0 '+(-step*3)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-4', e).css({'background-position': '0 '+(-step*4)+'px', 'opacity': ''}).show();
+						break;
+
+					case 'g':
+						$('.ui-colorpicker-bar-layer-1', e).css({'background-position': '0 '+(-step*10)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-2', e).css({'background-position': '0 '+(-step*9)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-3', e).css({'background-position': '0 '+(-step*7)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-4', e).css({'background-position': '0 '+(-step*8)+'px', 'opacity': ''}).show();
+						break;
+
+					case 'b':
+						$('.ui-colorpicker-bar-layer-1', e).css({'background-position': '0 '+(-step*14)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-2', e).css({'background-position': '0 '+(-step*13)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-3', e).css({'background-position': '0 '+(-step*11)+'px', 'opacity': ''}).show();
+						$('.ui-colorpicker-bar-layer-4', e).css({'background-position': '0 '+(-step*12)+'px', 'opacity': ''}).show();
+						break;
+
+					case 'a':
+						$('.ui-colorpicker-bar-layer-1', e).hide();
+						$('.ui-colorpicker-bar-layer-2', e).hide();
+						$('.ui-colorpicker-bar-layer-3', e).hide();
+						$('.ui-colorpicker-bar-layer-4', e).hide();
+						break;
+					}
+					that.repaint();
+				};
+
+				this.repaint = function () {
+					var div = $('.ui-colorpicker-bar-layer-pointer', e),
+						y = 0;
+
+					switch (inst.mode) {
+					case 'h':
+						y = (1 - inst.color.getHSV().h) * div.height();
+						break;
+
+					case 's':
+						y = (1 - inst.color.getHSV().s) * div.height();
+						$('.ui-colorpicker-bar-layer-2', e).css('opacity', 1 - inst.color.getHSV().v);
+						$(e).css('background-color', inst.color.copy().setHSV(null, 1, null).toCSS());
+						break;
+
+					case 'v':
+						y = (1 - inst.color.getHSV().v) * div.height();
+						$(e).css('background-color', inst.color.copy().setHSV(null, null, 1).toCSS());
+						break;
+
+					case 'r':
+						y = (1 - inst.color.getRGB().r) * div.height();
+						$('.ui-colorpicker-bar-layer-2', e).css('opacity', Math.max(0, (inst.color.getRGB().b - inst.color.getRGB().g)));
+						$('.ui-colorpicker-bar-layer-3', e).css('opacity', Math.max(0, (inst.color.getRGB().g - inst.color.getRGB().b)));
+						$('.ui-colorpicker-bar-layer-4', e).css('opacity', Math.min(inst.color.getRGB().b, inst.color.getRGB().g));
+						break;
+
+					case 'g':
+						y = (1 - inst.color.getRGB().g) * div.height();
+						$('.ui-colorpicker-bar-layer-2', e).css('opacity', Math.max(0, (inst.color.getRGB().b - inst.color.getRGB().r)));
+						$('.ui-colorpicker-bar-layer-3', e).css('opacity', Math.max(0, (inst.color.getRGB().r - inst.color.getRGB().b)));
+						$('.ui-colorpicker-bar-layer-4', e).css('opacity', Math.min(inst.color.getRGB().r, inst.color.getRGB().b));
+						break;
+
+					case 'b':
+						y = (1 - inst.color.getRGB().b) * div.height();
+						$('.ui-colorpicker-bar-layer-2', e).css('opacity', Math.max(0, (inst.color.getRGB().r - inst.color.getRGB().g)));
+						$('.ui-colorpicker-bar-layer-3', e).css('opacity', Math.max(0, (inst.color.getRGB().g - inst.color.getRGB().r)));
+						$('.ui-colorpicker-bar-layer-4', e).css('opacity', Math.min(inst.color.getRGB().r, inst.color.getRGB().g));
+						break;
+
+					case 'a':
+						y = (1 - inst.color.getAlpha()) * div.height();
+						$(e).css('background-color', inst.color.copy().toCSS());
+						break;
+					}
+
+					if (inst.mode !== 'a') {
+						$('.ui-colorpicker-bar-layer-alpha', e).css('opacity', 1 - inst.color.getAlpha());
+					}
+
+					$('.ui-colorpicker-bar-pointer', e).css('top', y - 3);
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-bar-container', inst.dialog));
+
+					e.bind('mousedown', _mousedown);
+				};
+			},
+
+			preview: function (inst) {
+				var that = this,
+					e = null,
+					_html;
+
+				_html = function () {
+					return '<div class="ui-colorpicker-preview ui-colorpicker-border">'
+						+ '<div class="ui-colorpicker-preview-initial"><div class="ui-colorpicker-preview-initial-alpha"></div></div>'
+						+ '<div class="ui-colorpicker-preview-current"><div class="ui-colorpicker-preview-current-alpha"></div></div>'
+						+ '</div>';
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-preview-container', inst.dialog));
+
+					$('.ui-colorpicker-preview-initial', e).click(function () {
+						inst.color = inst.currentColor.copy();
+						inst._change();
+					});
+				};
+
+				this.update = function () {
+					if (inst.options.alpha) {
+						$('.ui-colorpicker-preview-initial-alpha, .ui-colorpicker-preview-current-alpha', e).show();
+					} else {
+						$('.ui-colorpicker-preview-initial-alpha, .ui-colorpicker-preview-current-alpha', e).hide();
+					}
+
+					this.repaint();
+				};
+
+				this.repaint = function () {
+					$('.ui-colorpicker-preview-initial', e).css('background-color', inst.currentColor.set ? inst.currentColor.toCSS() : '').attr('title', inst.currentColor.set ? inst.currentColor.toCSS() : '');
+					$('.ui-colorpicker-preview-initial-alpha', e).css('opacity', 1 - inst.currentColor.getAlpha());
+					$('.ui-colorpicker-preview-current', e).css('background-color', inst.color.set ? inst.color.toCSS() : '').attr('title', inst.color.set ? inst.color.toCSS() : '');
+					$('.ui-colorpicker-preview-current-alpha', e).css('opacity', 1 - inst.color.getAlpha());
+				};
+			},
+
+			hsv: function (inst) {
+				var that = this,
+					e = null,
+					_html;
+
+				_html = function () {
+					var html = '';
+
+					if (inst.options.hsv) {
+						html +=	'<div class="ui-colorpicker-hsv-h"><input class="ui-colorpicker-mode" type="radio" value="h"/><label>' + inst._getRegional('hsvH') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="360" size="10"/><span class="ui-colorpicker-unit">&deg;</span></div>'
+							+ '<div class="ui-colorpicker-hsv-s"><input class="ui-colorpicker-mode" type="radio" value="s"/><label>' + inst._getRegional('hsvS') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100" size="10"/><span class="ui-colorpicker-unit">%</span></div>'
+							+ '<div class="ui-colorpicker-hsv-v"><input class="ui-colorpicker-mode" type="radio" value="v"/><label>' + inst._getRegional('hsvV') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100" size="10"/><span class="ui-colorpicker-unit">%</span></div>';
+					}
+
+					return '<div class="ui-colorpicker-hsv">' + html + '</div>';
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-hsv-container', inst.dialog));
+
+					$('.ui-colorpicker-mode', e).click(function () {
+						inst.mode = $(this).val();
+						inst._updateAllParts();
+					});
+
+					$('.ui-colorpicker-number', e).bind('change keyup', function () {
+						inst.color.setHSV(
+							$('.ui-colorpicker-hsv-h .ui-colorpicker-number', e).val() / 360,
+							$('.ui-colorpicker-hsv-s .ui-colorpicker-number', e).val() / 100,
+							$('.ui-colorpicker-hsv-v .ui-colorpicker-number', e).val() / 100
+						);
+						inst._change();
+					});
+				};
+
+				this.repaint = function () {
+					var hsv = inst.color.getHSV();
+					hsv.h *= 360;
+					hsv.s *= 100;
+					hsv.v *= 100;
+
+					$.each(hsv, function (index, value) {
+						var input = $('.ui-colorpicker-hsv-' + index + ' .ui-colorpicker-number', e);
+						value = Math.round(value);
+						if (parseInt(input.val(), 10) !== value) {
+							input.val(value);
+						}
+					});
+				};
+
+				this.update = function () {
+					$('.ui-colorpicker-mode', e).each(function () {
+						$(this).attr('checked', $(this).val() === inst.mode);
+					});
+					this.repaint();
+				};
+			},
+
+			rgb: function (inst) {
+				var that = this,
+					e = null,
+					_html;
+
+				_html = function () {
+					var html = '';
+
+					if (inst.options.rgb) {
+						html += '<div class="ui-colorpicker-rgb-r"><input class="ui-colorpicker-mode" type="radio" value="r"/><label>' + inst._getRegional('rgbR') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="255"/></div>'
+							+ '<div class="ui-colorpicker-rgb-g"><input class="ui-colorpicker-mode" type="radio" value="g"/><label>' + inst._getRegional('rgbG') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="255"/></div>'
+							+ '<div class="ui-colorpicker-rgb-b"><input class="ui-colorpicker-mode" type="radio" value="b"/><label>' + inst._getRegional('rgbB') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="255"/></div>';
+					}
+
+					return '<div class="ui-colorpicker-rgb">' + html + '</div>';
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-rgb-container', inst.dialog));
+
+					$('.ui-colorpicker-mode', e).click(function () {
+						inst.mode = $(this).val();
+						inst._updateAllParts();
+					});
+
+					$('.ui-colorpicker-number', e).bind('change keyup', function () {
+						var r = $('.ui-colorpicker-rgb-r .ui-colorpicker-number', e).val();
+						inst.color.setRGB(
+							$('.ui-colorpicker-rgb-r .ui-colorpicker-number', e).val() / 255,
+							$('.ui-colorpicker-rgb-g .ui-colorpicker-number', e).val() / 255,
+							$('.ui-colorpicker-rgb-b .ui-colorpicker-number', e).val() / 255
+						);
+
+						inst._change();
+					});
+				};
+
+				this.repaint = function () {
+					$.each(inst.color.getRGB(), function (index, value) {
+						var input = $('.ui-colorpicker-rgb-' + index + ' .ui-colorpicker-number', e);
+						value = Math.floor(value * 255);
+						if (parseInt(input.val(), 10) !== value) {
+							input.val(value);
+						}
+					});
+				};
+
+				this.update = function () {
+					$('.ui-colorpicker-mode', e).each(function () {
+						$(this).attr('checked', $(this).val() === inst.mode);
+					});
+					this.repaint();
+				};
+			},
+
+			lab: function (inst) {
+				var that = this,
+					part = null,
+					html = function () {
+						var html = '';
+
+						if (inst.options.hsv) {
+							html +=	'<div class="ui-colorpicker-lab-l"><label>' + inst._getRegional('labL') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100"/></div>'
+								+ '<div class="ui-colorpicker-lab-a"><label>' + inst._getRegional('labA') + '</label><input class="ui-colorpicker-number" type="number" min="-128" max="127"/></div>'
+								+ '<div class="ui-colorpicker-lab-b"><label>' + inst._getRegional('labB') + '</label><input class="ui-colorpicker-number" type="number" min="-128" max="127"/></div>';
+						}
+
+						return '<div class="ui-colorpicker-lab">' + html + '</div>';
+					};
+
+				this.init = function () {
+					var data = 0;
+
+					part = $(html()).appendTo($('.ui-colorpicker-lab-container', inst.dialog));
+
+					$('.ui-colorpicker-number', part).bind('change keyup', function (event) {
+						inst.color.setLAB(
+							parseInt($('.ui-colorpicker-lab-l .ui-colorpicker-number', part).val(), 10) / 100,
+							(parseInt($('.ui-colorpicker-lab-a .ui-colorpicker-number', part).val(), 10) + 128) / 255,
+							(parseInt($('.ui-colorpicker-lab-b .ui-colorpicker-number', part).val(), 10) + 128) / 255
+						);
+						inst._change();
+					});
+				};
+
+				this.repaint = function () {
+					var lab = inst.color.getLAB();
+					lab.l *= 100;
+					lab.a = (lab.a * 255) - 128;
+					lab.b = (lab.b * 255) - 128;
+
+					$.each(lab, function (index, value) {
+						var input = $('.ui-colorpicker-lab-' + index + ' .ui-colorpicker-number', part);
+						value = Math.round(value);
+						if (parseInt(input.val(), 10) !== value) {
+							input.val(value);
+						}
+					});
+				};
+
+				this.update = function () {
+					this.repaint();
+				};
+			},
+
+			cmyk: function (inst) {
+				var that = this,
+					part = null,
+					html = function () {
+						var html = '';
+
+						if (inst.options.hsv) {
+							html +=	'<div class="ui-colorpicker-cmyk-c"><label>' + inst._getRegional('cmykC') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100"/><span class="ui-colorpicker-unit">%</span></div>'
+								+ '<div class="ui-colorpicker-cmyk-m"><label>' + inst._getRegional('cmykM') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100"/><span class="ui-colorpicker-unit">%</span></div>'
+								+ '<div class="ui-colorpicker-cmyk-y"><label>' + inst._getRegional('cmykY') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100"/><span class="ui-colorpicker-unit">%</span></div>'
+								+ '<div class="ui-colorpicker-cmyk-k"><label>' + inst._getRegional('cmykK') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100"/><span class="ui-colorpicker-unit">%</span></div>';
+						}
+
+						return '<div class="ui-colorpicker-cmyk">' + html + '</div>';
+					};
+
+				this.init = function () {
+					part = $(html()).appendTo($('.ui-colorpicker-cmyk-container', inst.dialog));
+
+					$('.ui-colorpicker-number', part).bind('change keyup', function (event) {
+						inst.color.setCMYK(
+							parseInt($('.ui-colorpicker-cmyk-c .ui-colorpicker-number', part).val(), 10) / 100,
+							parseInt($('.ui-colorpicker-cmyk-m .ui-colorpicker-number', part).val(), 10) / 100,
+							parseInt($('.ui-colorpicker-cmyk-y .ui-colorpicker-number', part).val(), 10) / 100,
+							parseInt($('.ui-colorpicker-cmyk-k .ui-colorpicker-number', part).val(), 10) / 100
+						);
+						inst._change();
+					});
+				};
+
+				this.repaint = function () {
+					$.each(inst.color.getCMYK(), function (index, value) {
+						var input = $('.ui-colorpicker-cmyk-' + index + ' .ui-colorpicker-number', part);
+						value = Math.round(value * 100);
+						if (parseInt(input.val(), 10, 10) !== value) {
+							input.val(value);
+						}
+					});
+				};
+
+				this.update = function () {
+					this.repaint();
+				};
+			},
+
+			alpha: function (inst) {
+				var that = this,
+					e = null,
+					_html;
+
+				_html = function () {
+					var html = '';
+
+					if (inst.options.alpha) {
+						html += '<div class="ui-colorpicker-a"><input class="ui-colorpicker-mode" name="mode" type="radio" value="a"/><label>' + inst._getRegional('alphaA') + '</label><input class="ui-colorpicker-number" type="number" min="0" max="100"/><span class="ui-colorpicker-unit">%</span></div>';
+					}
+
+					return '<div class="ui-colorpicker-alpha">' + html + '</div>';
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-alpha-container', inst.dialog));
+
+					$('.ui-colorpicker-mode', e).click(function () {
+						inst.mode = $(this).val();
+						inst._updateAllParts();
+					});
+
+					$('.ui-colorpicker-number', e).bind('change keyup', function () {
+						inst.color.setAlpha($('.ui-colorpicker-a .ui-colorpicker-number', e).val() / 100);
+						inst._change();
+					});
+				};
+
+				this.update = function () {
+					$('.ui-colorpicker-mode', e).each(function () {
+						$(this).attr('checked', $(this).val() === inst.mode);
+					});
+					this.repaint();
+				};
+
+				this.repaint = function () {
+					var input = $('.ui-colorpicker-a .ui-colorpicker-number', e),
+						value = Math.round(inst.color.getAlpha() * 100);
+					if (parseInt(input.val(), 10) !== value) {
+						input.val(value);
+					}
+				};
+			},
+
+			hex: function (inst) {
+				var that = this,
+					e = null,
+					_html;
+
+				_html = function () {
+					var html = '';
+
+					if (inst.options.alpha) {
+						html += '<input class="ui-colorpicker-hex-alpha" type="text" maxlength="2" size="2"/>';
+					}
+
+					html += '<input class="ui-colorpicker-hex-input" type="text" maxlength="6" size="6"/>';
+
+					return '<div class="ui-colorpicker-hex"><label>#</label>' + html + '</div>';
+				};
+
+				this.init = function () {
+					e = $(_html()).appendTo($('.ui-colorpicker-hex-container', inst.dialog));
+
+					// repeat here makes the invalid input disappear faster
+					$('.ui-colorpicker-hex-input', e).bind('change keydown keyup', function (a, b, c) {
+						if (/[^a-fA-F0-9]/.test($(this).val())) {
+							$(this).val($(this).val().replace(/[^a-fA-F0-9]/, ''));
+						}
+					});
+
+					$('.ui-colorpicker-hex-input', e).bind('change keyup', function () {
+						// repeat here makes sure that the invalid input doesn't get parsed
+						inst.color = _parseHex($(this).val()).setAlpha(inst.color.getAlpha());
+						inst._change();
+					});
+
+					$('.ui-colorpicker-hex-alpha', e).bind('change keydown keyup', function () {
+						if (/[^a-fA-F0-9]/.test($(this).val())) {
+							$(this).val($(this).val().replace(/[^a-fA-F0-9]/, ''));
+						}
+					});
+
+					$('.ui-colorpicker-hex-alpha', e).bind('change keyup', function () {
+						inst.color.setAlpha(parseInt($('.ui-colorpicker-hex-alpha', e).val(), 16) / 255);
+						inst._change();
+					});
+				};
+
+				this.update = function () {
+					this.repaint();
+				};
+
+				this.repaint = function () {
+					if (!$('.ui-colorpicker-hex-input', e).is(':focus')) {
+						$('.ui-colorpicker-hex-input', e).val(inst.color.toHex(true));
+					}
+
+					if (!$('.ui-colorpicker-hex-alpha', e).is(':focus')) {
+						$('.ui-colorpicker-hex-alpha', e).val(_intToHex(inst.color.getAlpha() * 255));
+					}
+				};
+			},
+
+			swatches: function (inst) {
+				var that = this,
+					part = null,
+					html = function () {
+						var html = '';
+
+						inst._eachSwatch(function (name, color) {
+							var c = new $.colorpicker.Color(color.r, color.g, color.b),
+								css = c.toCSS();
+							html += '<div class="ui-colorpicker-swatch" style="background-color:' + css + '" title="' + name + '"></div>';
+						});
+
+						return '<div class="ui-colorpicker-swatches ui-colorpicker-border" style="width:' + inst.options.swatchesWidth + 'px">' + html + '</div>';
+					};
+
+				this.init = function () {
+					part = $(html()).appendTo($('.ui-colorpicker-swatches-container', inst.dialog));
+
+					$('.ui-colorpicker-swatch', part).click(function () {
+						inst.color	= inst._parseColor($(this).css('background-color'));
+						inst._change();
+					});
+				};
+			},
+
+			footer: function (inst) {
+				var that = this,
+					part = null,
+					id_transparent = 'ui-colorpicker-special-transparent-'+_colorpicker_index,
+					id_none = 'ui-colorpicker-special-none-'+_colorpicker_index,
+					html = function () {
+						var html = '';
+
+						if (inst.options.alpha || (!inst.inline && inst.options.showNoneButton)) {
+							html += '<div class="ui-colorpicker-buttonset">';
+
+							if (inst.options.alpha) {
+								html += '<input type="radio" name="ui-colorpicker-special" id="'+id_transparent+'" class="ui-colorpicker-special-transparent"/><label for="'+id_transparent+'">' + inst._getRegional('transparent') + '</label>';
+							}
+							if (!inst.inline && inst.options.showNoneButton) {
+								html += '<input type="radio" name="ui-colorpicker-special" id="'+id_none+'" class="ui-colorpicker-special-none"><label for="'+id_none+'">' + inst._getRegional('none') + '</label>';
+							}
+							html += '</div>';
+						}
+
+						if (!inst.inline) {
+							html += '<div class="ui-dialog-buttonset">';
+							if (inst.options.showCancelButton) {
+								html += '<button class="ui-colorpicker-cancel">' + inst._getRegional('cancel') + '</button>';
+							}
+							html += '<button class="ui-colorpicker-ok">' + inst._getRegional('ok') + '</button>';
+							html += '</div>';
+						}
+
+						return '<div class="ui-dialog-buttonpane ui-widget-content">' + html + '</div>';
+					};
+
+				this.init = function () {
+					part = $(html()).appendTo(inst.dialog);
+
+					$('.ui-colorpicker-ok', part).button().click(function () {
+						inst.close();
+					});
+
+					$('.ui-colorpicker-cancel', part).button().click(function () {
+						inst.close(true);   //cancel
+					});
+
+					//inst._getRegional('transparent')
+					$('.ui-colorpicker-buttonset', part).buttonset();
+
+					$('.ui-colorpicker-special-color', part).click(function () {
+						inst._change();
+					});
+
+					$('#'+id_none, part).click(function () {
+						inst.color.set = false;
+						inst._change();
+					});
+
+					$('#'+id_transparent, part).click(function () {
+						inst.color.setAlpha(0);
+						inst._change();
+					});
+				};
+
+				this.repaint = function () {
+					if (!inst.color.set) {
+						$('.ui-colorpicker-special-none', part).attr('checked', true).button( "refresh" );
+					} else if (inst.color.getAlpha() === 0) {
+						$('.ui-colorpicker-special-transparent', part).attr('checked', true).button( "refresh" );
+					} else {
+						$('input', part).attr('checked', false).button( "refresh" );
+					}
+
+					$('.ui-colorpicker-cancel', part).button(inst.changed ? 'enable' : 'disable');
+				};
+
+				this.update = function () {};
+			}
+		};
+
+		this.Color = function () {
+			var spaces = {	rgb:	{r: 0, g: 0, b: 0},
+							hsv:	{h: 0, s: 0, v: 0},
+							hsl:	{h: 0, s: 0, l: 0},
+							lab:	{l: 0, a: 0, b: 0},
+							cmyk:	{c: 0, m: 0, y: 0, k: 1}
+						},
+				a = 1,
+				illuminant = [0.9504285, 1, 1.0889],	// CIE-L*ab D65/2' 1931
+				args = arguments,
+				_clip = function(v) {
+					if (isNaN(v) || v === null) {
+						return 0;
+					}
+					if (typeof v == 'string') {
+						v = parseInt(v, 10);
+					}
+					return Math.max(0, Math.min(v, 1));
+				},
+				_hexify = function (number) {
+					var digits = '0123456789abcdef',
+						lsd = number % 16,
+						msd = (number - lsd) / 16,
+						hexified = digits.charAt(msd) + digits.charAt(lsd);
+					return hexified;
+				},
+				_rgb_to_xyz = function(rgb) {
+					var r = (rgb.r > 0.04045) ? Math.pow((rgb.r + 0.055) / 1.055, 2.4) : rgb.r / 12.92,
+						g = (rgb.g > 0.04045) ? Math.pow((rgb.g + 0.055) / 1.055, 2.4) : rgb.g / 12.92,
+						b = (rgb.b > 0.04045) ? Math.pow((rgb.b + 0.055) / 1.055, 2.4) : rgb.b / 12.92;
+
+					return {
+						x: r * 0.4124 + g * 0.3576 + b * 0.1805,
+						y: r * 0.2126 + g * 0.7152 + b * 0.0722,
+						z: r * 0.0193 + g * 0.1192 + b * 0.9505
+					};
+				},
+				_xyz_to_rgb = function(xyz) {
+					var rgb = {
+						r: xyz.x *  3.2406 + xyz.y * -1.5372 + xyz.z * -0.4986,
+						g: xyz.x * -0.9689 + xyz.y *  1.8758 + xyz.z *  0.0415,
+						b: xyz.x *  0.0557 + xyz.y * -0.2040 + xyz.z *  1.0570
+					};
+
+					rgb.r = (rgb.r > 0.0031308) ? 1.055 * Math.pow(rgb.r, (1 / 2.4)) - 0.055 : 12.92 * rgb.r;
+					rgb.g = (rgb.g > 0.0031308) ? 1.055 * Math.pow(rgb.g, (1 / 2.4)) - 0.055 : 12.92 * rgb.g;
+					rgb.b = (rgb.b > 0.0031308) ? 1.055 * Math.pow(rgb.b, (1 / 2.4)) - 0.055 : 12.92 * rgb.b;
+
+					return rgb;
+				},
+				_rgb_to_hsv = function(rgb) {
+					var minVal = Math.min(rgb.r, rgb.g, rgb.b),
+						maxVal = Math.max(rgb.r, rgb.g, rgb.b),
+						delta = maxVal - minVal,
+						del_R, del_G, del_B,
+						hsv = {
+							h: 0,
+							s: 0,
+							v: maxVal
+						};
+
+					if (delta === 0) {
+						hsv.h = 0;
+						hsv.s = 0;
+					} else {
+						hsv.s = delta / maxVal;
+
+						del_R = (((maxVal - rgb.r) / 6) + (delta / 2)) / delta;
+						del_G = (((maxVal - rgb.g) / 6) + (delta / 2)) / delta;
+						del_B = (((maxVal - rgb.b) / 6) + (delta / 2)) / delta;
+
+						if (rgb.r === maxVal) {
+							hsv.h = del_B - del_G;
+						} else if (rgb.g === maxVal) {
+							hsv.h = (1 / 3) + del_R - del_B;
+						} else if (rgb.b === maxVal) {
+							hsv.h = (2 / 3) + del_G - del_R;
+						}
+
+						if (hsv.h < 0) {
+							hsv.h += 1;
+						} else if (hsv.h > 1) {
+							hsv.h -= 1;
+						}
+					}
+
+					return hsv;
+				},
+				_hsv_to_rgb = function(hsv) {
+					var rgb = {
+							r: 0,
+							g: 0,
+							b: 0
+						},
+						var_h,
+						var_i,
+						var_1,
+						var_2,
+						var_3;
+
+					if (hsv.s === 0) {
+						rgb.r = rgb.g = rgb.b = hsv.v;
+					} else {
+						var_h = hsv.h === 1 ? 0 : hsv.h * 6;
+						var_i = Math.floor(var_h);
+						var_1 = hsv.v * (1 - hsv.s);
+						var_2 = hsv.v * (1 - hsv.s * (var_h - var_i));
+						var_3 = hsv.v * (1 - hsv.s * (1 - (var_h - var_i)));
+
+						if (var_i === 0) {
+							rgb.r = hsv.v;
+							rgb.g = var_3;
+							rgb.b = var_1;
+						} else if (var_i === 1) {
+							rgb.r = var_2;
+							rgb.g = hsv.v;
+							rgb.b = var_1;
+						} else if (var_i === 2) {
+							rgb.r = var_1;
+							rgb.g = hsv.v;
+							rgb.b = var_3;
+						} else if (var_i === 3) {
+							rgb.r = var_1;
+							rgb.g = var_2;
+							rgb.b = hsv.v;
+						} else if (var_i === 4) {
+							rgb.r = var_3;
+							rgb.g = var_1;
+							rgb.b = hsv.v;
+						} else {
+							rgb.r = hsv.v;
+							rgb.g = var_1;
+							rgb.b = var_2;
+						}
+					}
+
+					return rgb;
+				},
+				_rgb_to_hsl = function(rgb) {
+					var minVal = Math.min(rgb.r, rgb.g, rgb.b),
+						maxVal = Math.max(rgb.r, rgb.g, rgb.b),
+						delta = maxVal - minVal,
+						del_R, del_G, del_B,
+						hsl = {
+							h: 0,
+							s: 0,
+							l: (maxVal + minVal) / 2
+						};
+
+					if (delta === 0) {
+						hsl.h = 0;
+						hsl.s = 0;
+					} else {
+						hsl.s = hsl.l < 0.5 ? delta / (maxVal + minVal) : delta / (2 - maxVal - minVal);
+
+						del_R = (((maxVal - rgb.r) / 6) + (delta / 2)) / delta;
+						del_G = (((maxVal - rgb.g) / 6) + (delta / 2)) / delta;
+						del_B = (((maxVal - rgb.b) / 6) + (delta / 2)) / delta;
+
+						if (rgb.r === maxVal) {
+							hsl.h = del_B - del_G;
+						} else if (rgb.g === maxVal) {
+							hsl.h = (1 / 3) + del_R - del_B;
+						} else if (rgb.b === maxVal) {
+							hsl.h = (2 / 3) + del_G - del_R;
+						}
+
+						if (hsl.h < 0) {
+							hsl.h += 1;
+						} else if (hsl.h > 1) {
+							hsl.h -= 1;
+						}
+					}
+
+					return hsl;
+				},
+				_hsl_to_rgb = function(hsl) {
+					var var_1,
+						var_2,
+						hue_to_rgb	= function(v1, v2, vH) {
+										if (vH < 0) {
+											vH += 1;
+										}
+										if (vH > 1) {
+											vH -= 1;
+										}
+										if ((6 * vH) < 1) {
+											return v1 + (v2 - v1) * 6 * vH;
+										}
+										if ((2 * vH) < 1) {
+											return v2;
+										}
+										if ((3 * vH) < 2) {
+											return v1 + (v2 - v1) * ((2 / 3) - vH) * 6;
+										}
+										return v1;
+									};
+
+					if (hsl.s === 0) {
+						return {
+							r: hsl.l,
+							g: hsl.l,
+							b: hsl.l
+						};
+					}
+
+					var_2 = (hsl.l < 0.5) ? hsl.l * (1 + hsl.s) : (hsl.l + hsl.s) - (hsl.s * hsl.l);
+					var_1 = 2 * hsl.l - var_2;
+
+					return {
+						r: hue_to_rgb(var_1, var_2, hsl.h + (1 / 3)),
+						g: hue_to_rgb(var_1, var_2, hsl.h),
+						b: hue_to_rgb(var_1, var_2, hsl.h - (1 / 3))
+					};
+				},
+				_xyz_to_lab = function(xyz) {
+					var x = xyz.x / illuminant[0],
+						y = xyz.y / illuminant[1],
+						z = xyz.z / illuminant[2];
+
+					x = (x > 0.008856) ? Math.pow(x, (1/3)) : (7.787 * x) + (16/116);
+					y = (y > 0.008856) ? Math.pow(y, (1/3)) : (7.787 * y) + (16/116);
+					z = (z > 0.008856) ? Math.pow(z, (1/3)) : (7.787 * z) + (16/116);
+
+					return {
+						l: ((116 * y) - 16) / 100,	// [0,100]
+						a: ((500 * (x - y)) + 128) / 255,	// [-128,127]
+						b: ((200 * (y - z))	+ 128) / 255	// [-128,127]
+					};
+				},
+				_lab_to_xyz = function(lab) {
+					var lab2 = {
+							l: lab.l * 100,
+							a: (lab.a * 255) - 128,
+							b: (lab.b * 255) - 128
+						},
+						xyz = {
+							x: 0,
+							y: (lab2.l + 16) / 116,
+							z: 0
+						};
+
+					xyz.x = lab2.a / 500 + xyz.y;
+					xyz.z = xyz.y - lab2.b / 200;
+
+					xyz.x = (Math.pow(xyz.x, 3) > 0.008856) ? Math.pow(xyz.x, 3) : (xyz.x - 16 / 116) / 7.787;
+					xyz.y = (Math.pow(xyz.y, 3) > 0.008856) ? Math.pow(xyz.y, 3) : (xyz.y - 16 / 116) / 7.787;
+					xyz.z = (Math.pow(xyz.z, 3) > 0.008856) ? Math.pow(xyz.z, 3) : (xyz.z - 16 / 116) / 7.787;
+
+					xyz.x *= illuminant[0];
+					xyz.y *= illuminant[1];
+					xyz.z *= illuminant[2];
+
+					return xyz;
+				},
+				_rgb_to_cmy = function(rgb) {
+					return {
+						c: 1 - (rgb.r),
+						m: 1 - (rgb.g),
+						y: 1 - (rgb.b)
+					};
+				},
+				_cmy_to_rgb = function(cmy) {
+					return {
+						r: 1 - (cmy.c),
+						g: 1 - (cmy.m),
+						b: 1 - (cmy.y)
+					};
+				},
+				_cmy_to_cmyk = function(cmy) {
+					var K = 1;
+
+					if (cmy.c < K) {
+						K = cmy.c;
+					}
+					if (cmy.m < K) {
+						K = cmy.m;
+					}
+					if (cmy.y < K) {
+						K = cmy.y;
+					}
+
+					if (K === 1) {
+						return {
+							c: 0,
+							m: 0,
+							y: 0,
+							k: 1
+						};
+					}
+
+					return {
+						c: (cmy.c - K) / (1 - K),
+						m: (cmy.m - K) / (1 - K),
+						y: (cmy.y - K) / (1 - K),
+						k: K
+					};
+				},
+				_cmyk_to_cmy = function(cmyk) {
+					return {
+						c: cmyk.c * (1 - cmyk.k) + cmyk.k,
+						m: cmyk.m * (1 - cmyk.k) + cmyk.k,
+						y: cmyk.y * (1 - cmyk.k) + cmyk.k
+					};
+				};
+
+			this.set = false;
+
+			this.setAlpha = function(_a) {
+				if (_a !== null) {
+					a = _clip(_a);
+				}
+				this.set = true;
+
+				return this;
+			};
+
+			this.getAlpha = function() {
+				return a;
+			};
+
+			this.setRGB = function(r, g, b) {
+				spaces = { rgb: this.getRGB() };
+				if (r !== null) {
+					spaces.rgb.r = _clip(r);
+				}
+				if (g !== null) {
+					spaces.rgb.g = _clip(g);
+				}
+				if (b !== null) {
+					spaces.rgb.b = _clip(b);
+				}
+				this.set = true;
+
+				return this;
+			};
+
+			this.setHSV = function(h, s, v) {
+				spaces = {hsv: this.getHSV()};
+				if (h !== null) {
+					spaces.hsv.h = _clip(h);
+				}
+				if (s !== null)	{
+					spaces.hsv.s = _clip(s);
+				}
+				if (v !== null)	{
+					spaces.hsv.v = _clip(v);
+				}
+				this.set = true;
+
+				return this;
+			};
+
+			this.setHSL = function(h, s, l) {
+				spaces = {hsl: this.getHSL()};
+				if (h !== null)	{
+					spaces.hsl.h = _clip(h);
+				}
+				if (s !== null) {
+					spaces.hsl.s = _clip(s);
+				}
+				if (l !== null) {
+					spaces.hsl.l = _clip(l);
+				}
+				this.set = true;
+
+				return this;
+			};
+
+			this.setLAB = function(l, a, b) {
+				spaces = {lab: this.getLAB()};
+				if (l !== null) {
+					spaces.lab.l = _clip(l);
+				}
+				if (a !== null) {
+					spaces.lab.a = _clip(a);
+				}
+				if (b !== null) {
+					spaces.lab.b = _clip(b);
+				}
+				this.set = true;
+
+				return this;
+			};
+
+			this.setCMYK = function(c, m, y, k) {
+				spaces = {cmyk: this.getCMYK()};
+				if (c !== null) {
+					spaces.cmyk.c = _clip(c);
+				}
+				if (m !== null) {
+					spaces.cmyk.m = _clip(m);
+				}
+				if (y !== null) {
+					spaces.cmyk.y = _clip(y);
+				}
+				if (k !== null) {
+					spaces.cmyk.k = _clip(k);
+				}
+				this.set = true;
+
+				return this;
+			};
+
+			this.getRGB = function() {
+				if (!spaces.rgb) {
+					spaces.rgb	= spaces.lab ?	_xyz_to_rgb(_lab_to_xyz(spaces.lab))
+								: spaces.hsv ?	_hsv_to_rgb(spaces.hsv)
+								: spaces.hsl ?	_hsl_to_rgb(spaces.hsl)
+								: spaces.cmyk ?	_cmy_to_rgb(_cmyk_to_cmy(spaces.cmyk))
+								: {r: 0, g: 0, b: 0};
+					spaces.rgb.r = _clip(spaces.rgb.r);
+					spaces.rgb.g = _clip(spaces.rgb.g);
+					spaces.rgb.b = _clip(spaces.rgb.b);
+				}
+				return $.extend({}, spaces.rgb);
+			};
+
+			this.getHSV = function() {
+				if (!spaces.hsv) {
+					spaces.hsv	= spaces.lab ? _rgb_to_hsv(this.getRGB())
+								: spaces.rgb ?	_rgb_to_hsv(spaces.rgb)
+								: spaces.hsl ?	_rgb_to_hsv(this.getRGB())
+								: spaces.cmyk ?	_rgb_to_hsv(this.getRGB())
+								: {h: 0, s: 0, v: 0};
+					spaces.hsv.h = _clip(spaces.hsv.h);
+					spaces.hsv.s = _clip(spaces.hsv.s);
+					spaces.hsv.v = _clip(spaces.hsv.v);
+				}
+				return $.extend({}, spaces.hsv);
+			};
+
+			this.getHSL = function() {
+				if (!spaces.hsl) {
+					spaces.hsl	= spaces.rgb ?	_rgb_to_hsl(spaces.rgb)
+								: spaces.hsv ?	_rgb_to_hsl(this.getRGB())
+								: spaces.cmyk ?	_rgb_to_hsl(this.getRGB())
+								: spaces.hsv ?	_rgb_to_hsl(this.getRGB())
+								: {h: 0, s: 0, l: 0};
+					spaces.hsl.h = _clip(spaces.hsl.h);
+					spaces.hsl.s = _clip(spaces.hsl.s);
+					spaces.hsl.l = _clip(spaces.hsl.l);
+				}
+				return $.extend({}, spaces.hsl);
+			};
+
+			this.getCMYK = function() {
+				if (!spaces.cmyk) {
+					spaces.cmyk	= spaces.rgb ?	_cmy_to_cmyk(_rgb_to_cmy(spaces.rgb))
+								: spaces.hsv ?	_cmy_to_cmyk(_rgb_to_cmy(this.getRGB()))
+								: spaces.hsl ?	_cmy_to_cmyk(_rgb_to_cmy(this.getRGB()))
+								: spaces.lab ?	_cmy_to_cmyk(_rgb_to_cmy(this.getRGB()))
+								: {c: 0, m: 0, y: 0, k: 1};
+					spaces.cmyk.c = _clip(spaces.cmyk.c);
+					spaces.cmyk.m = _clip(spaces.cmyk.m);
+					spaces.cmyk.y = _clip(spaces.cmyk.y);
+					spaces.cmyk.k = _clip(spaces.cmyk.k);
+				}
+				return $.extend({}, spaces.cmyk);
+			};
+
+			this.getLAB = function() {
+				if (!spaces.lab) {
+					spaces.lab	= spaces.rgb ?	_xyz_to_lab(_rgb_to_xyz(spaces.rgb))
+								: spaces.hsv ?	_xyz_to_lab(_rgb_to_xyz(this.getRGB()))
+								: spaces.hsl ?	_xyz_to_lab(_rgb_to_xyz(this.getRGB()))
+								: spaces.cmyk ?	_xyz_to_lab(_rgb_to_xyz(this.getRGB()))
+								: {l: 0, a: 0, b: 0};
+					spaces.lab.l = _clip(spaces.lab.l);
+					spaces.lab.a = _clip(spaces.lab.a);
+					spaces.lab.b = _clip(spaces.lab.b);
+				}
+				return $.extend({}, spaces.lab);
+			};
+
+			this.getChannels = function() {
+				return {
+					r:	this.getRGB().r,
+					g:	this.getRGB().g,
+					b:	this.getRGB().b,
+					a:	this.getAlpha(),
+					h:	this.getHSV().h,
+					s:	this.getHSV().s,
+					v:	this.getHSV().v,
+					c:	this.getCMYK().c,
+					m:	this.getCMYK().m,
+					y:	this.getCMYK().y,
+					k:	this.getCMYK().k,
+					L:	this.getLAB().l,
+					A:	this.getLAB().a,
+					B:	this.getLAB().b
+				};
+			};
+
+			this.getSpaces = function() {
+				return $.extend(true, {}, spaces);
+			};
+
+			this.distance = function(color) {
+				var space	= 'lab',
+					getter	= 'get'+space.toUpperCase(),
+					a = this[getter](),
+					b = color[getter](),
+					distance = 0,
+					channel;
+
+				for (channel in a) {
+					distance += Math.pow(a[channel] - b[channel], 2);
+				}
+
+				return distance;
+			};
+
+			this.equals = function(color) {
+				var a = this.getRGB(),
+					b = color.getRGB();
+
+				return this.getAlpha() === color.getAlpha()
+					&& a.r === b.r
+					&& a.g === b.g
+					&& a.b === b.b;
+			};
+
+			this.limit = function(steps) {
+				steps -= 1;
+				var rgb = this.getRGB();
+				this.setRGB(
+					Math.round(rgb.r * steps) / steps,
+					Math.round(rgb.g * steps) / steps,
+					Math.round(rgb.b * steps) / steps
+				);
+			};
+
+			this.toHex = function() {
+				var rgb = this.getRGB();
+				return _hexify(rgb.r * 255) + _hexify(rgb.g * 255) + _hexify(rgb.b * 255);
+			};
+
+			this.toCSS = function() {
+				return '#' + this.toHex();
+			};
+
+			this.copy = function() {
+				var color = new $.colorpicker.Color(this.getSpaces(), this.getAlpha());
+				color.set = this.set;
+				return color;
+			};
+
+			// Construct
+			if (args.length === 2) {
+				spaces = args[0];
+				this.setAlpha(args[1] === 0 ? 0 : args[1] || 1);
+				this.set = true;
+			}
+			if (args.length > 2) {
+				this.setRGB(args[0], args[1], args[2]);
+				this.setAlpha(args[3] === 0 ? 0 : args[3] || 1);
+				this.set = true;
+			}
+		};
+	}();
+
+	$.widget("vanderlee.colorpicker", {
+		options: {
+			alpha:				false,		// Show alpha controls and mode
+			altAlpha:			true,		// change opacity of altField as well?
+			altField:			'',			// selector for DOM elements which change background color on change.
+			altOnChange:		true,		// true to update on each change, false to update only on close.
+			altProperties:		'background-color',	// comma separated list of any of 'background-color', 'color', 'border-color', 'outline-color'
+			autoOpen:			false,		// Open dialog automatically upon creation
+			buttonClass:		null,		// If set, the button will get this/these classname(s).
+			buttonColorize:		false,
+			buttonImage:		'images/ui-colorpicker.png',
+			buttonImageOnly:	false,
+			buttonText:			null,		// Text on the button and/or title of button image.
+			closeOnEscape:		true,		// Close the dialog when the escape key is pressed.
+			closeOnOutside:		true,		// Close the dialog when clicking outside the dialog (not for inline)
+			color:				'#00FF00',	// Initial color (for inline only)
+			colorFormat:		'HEX',		// Format string for output color format
+			draggable:			true,		// Make popup dialog draggable if header is visible.
+			duration:			'fast',
+			hsv:				true,		// Show HSV controls and modes
+			inline:				true,		// Show any divs as inline by default
+			inlineFrame:		true,		// Show a border and background when inline.
+			layout: {
+				map:		[0, 0, 1, 5],	// Left, Top, Width, Height (in table cells).
+				bar:		[1, 0, 1, 5],
+				preview:	[2, 0, 1, 1],
+				hsv:		[2, 1, 1, 1],
+				rgb:		[2, 2, 1, 1],
+				alpha:		[2, 3, 1, 1],
+				hex:		[2, 4, 1, 1],
+				lab:		[3, 1, 1, 1],
+				cmyk:		[3, 2, 1, 2],
+				swatches:	[4, 0, 1, 5]
+			},
+			limit:				'',			// Limit color "resolution": '', 'websafe', 'nibble', 'binary', 'name'
+			modal:				false,		// Modal dialog?
+			mode:				'h',		// Initial editing mode, h, s, v, r, g, b or a
+			okOnEnter:			false,		// Close (with OK) when pressing the enter key
+			parts:				'',			// leave empty for automatic selection
+			part: {
+				map:		{ size: 256 },
+				bar:		{ size: 256 }
+			},			// options per part
+			regional:			'',
+			revert:				false,		// Revert color upon non
+			rgb:				true,		// Show RGB controls and modes
+			showAnim:			'fadeIn',
+			showCancelButton:	true,
+			showNoneButton:		false,
+			showCloseButton:	true,
+			showOn:				'focus click alt',		// 'focus', 'click', 'button', 'alt', 'both'
+			showOptions:		{},
+			swatches:			null,		// null for default or kv-object or names swatches set
+			swatchesWidth:		84,			// width (in number of pixels) of swatches box.
+			title:				null,
+
+			cancel:             null,
+            close:              null,
+			init:				null,
+			select:             null,
+            ok:                 null,
+			open:               null
+		},
+
+		_create: function () {
+			var that = this,
+				text;
+
+			++_colorpicker_index;
+
+			that.widgetEventPrefix = 'colorpicker';
+
+			that.opened		= false;
+			that.generated	= false;
+			that.inline		= false;
+			that.changed	= false;
+
+			that.dialog		= null;
+			that.button		= null;
+			that.image		= null;
+			that.overlay	= null;
+
+			that.mode		= that.options.mode;
+
+			if (that.element.is('input') || that.options.inline === false) {
+				// Initial color
+				that._setColor(that.element.is('input') ? that.element.val() : that.options.color);
+				that._callback('init');
+
+				// showOn focus
+				if (/\bfocus|both\b/.test(that.options.showOn)) {
+					that.element.bind('focus', function () {
+						that.open();
+					});
+				}
+
+				// showOn click
+				if (/\bclick|both\b/.test(that.options.showOn)) {
+					that.element.bind('click', function () {
+						that.open();
+					});
+				}
+
+				// showOn button
+				if (/\bbutton|both\b/.test(that.options.showOn)) {
+					if (that.options.buttonImage !== '') {
+						text = that.options.buttonText || that._getRegional('button');
+
+						that.image = $('<img/>').attr({
+							'src':		that.options.buttonImage,
+							'alt':		text,
+							'title':	text
+						});
+						if (that.options.buttonClass) {
+							that.image.attr('class', that.options.buttonClass);
+						}
+
+						that._setImageBackground();
+					}
+
+					if (that.options.buttonImageOnly && that.image) {
+						that.button = that.image;
+					} else {
+						that.button = $('<button type="button"></button>').html(that.image || that.options.buttonText).button();
+						that.image = that.image ? $('img', that.button).first() : null;
+					}
+					that.button.insertAfter(that.element).click(function () {
+						that[that.opened ? 'close' : 'open']();
+					});
+				}
+
+				// showOn alt
+				if (/\balt|both\b/.test(that.options.showOn)) {
+					$(that.options.altField).bind('click', function () {
+						that.open();
+					});
+				}
+
+				if (that.options.autoOpen) {
+					that.open();
+				}
+			} else {
+				that.inline = true;
+
+				that._generate();
+				that.opened = true;
+			}
+
+			return this;
+		},
+
+		_setOption: function(key, value){
+			var that = this;
+
+			switch (key) {
+			case "disabled":
+				if (value) {
+					that.dialog.addClass('ui-colorpicker-disabled');
+				} else {
+					that.dialog.removeClass('ui-colorpicker-disabled');
+				}
+				break;
+			}
+
+			$.Widget.prototype._setOption.apply(that, arguments);
+		},
+
+		_setImageBackground: function() {
+			if (this.image && this.options.buttonColorize) {
+				this.image.css('background-color', this.color.set? this._formatColor('RGBA', this.color) : '');
+			}
+		},
+
+		/**
+		 * If an alternate field is specified, set it according to the current color.
+		 */
+		_setAltField: function () {
+			if (this.options.altOnChange && this.options.altField && this.options.altProperties) {
+				var index,
+					property,
+					properties = this.options.altProperties.split(',');
+
+				for (index = 0; index <= properties.length; ++index) {
+					property = $.trim(properties[index]);
+					switch (property) {
+						case 'color':
+						case 'background-color':
+						case 'backgroundColor':
+						case 'outline-color':
+						case 'border-color':
+							$(this.options.altField).css(property, this.color.set? this.color.toCSS() : '');
+							break;
+					}
+				}
+
+				if (this.options.altAlpha) {
+					$(this.options.altField).css('opacity', this.color.set? this.color.getAlpha() : '');
+				}
+			}
+		},
+
+		_setColor: function(text) {
+			this.color			= this._parseColor(text);
+			this.currentColor	= this.color.copy();
+
+			this._setImageBackground();
+			this._setAltField();
+		},
+
+		setColor: function(text) {
+			this._setColor(text);
+			this._change();
+		},
+
+		getColor: function(format) {
+			return this._formatColor(format || this.options.colorFormat, this.color);
+		},
+
+		_generateInline: function() {
+			var that = this;
+
+			$(that.element).html(that.options.inlineFrame ? _container_inlineFrame : _container_inline);
+
+			that.dialog = $('.ui-colorpicker', that.element);
+		},
+
+		_generatePopup: function() {
+			var that = this;
+
+			$('body').append(_container_popup);
+			that.dialog = $('.ui-colorpicker:last');
+
+			// Close on clicking outside window and controls
+			$(document).delegate('html', 'touchstart click', function (event) {
+				if (!that.opened || event.target === that.element[0] || that.overlay) {
+					return;
+				}
+
+				// Check if clicked on any part of dialog
+				if (that.dialog.is(event.target) || that.dialog.has(event.target).length > 0) {
+					that.element.blur();	// inside window!
+					return;
+				}
+
+				// Check if clicked on known external elements
+				var p,
+					parents = $(event.target).parents();
+				// add the event.target in case of buttonImageOnly and closeOnOutside both are set to true
+				parents.push(event.target);
+				for (p = 0; p <= parents.length; ++p) {
+					// button
+					if (that.button !== null && parents[p] === that.button[0]) {
+						return;
+					}
+					// showOn alt
+					if (/\balt|both\b/.test(that.options.showOn) && $(that.options.altField).is(parents[p])) {
+						return;
+					}
+				}
+
+				// no closeOnOutside
+				if (!that.options.closeOnOutside) {
+					return;
+				}
+
+				that.close(that.options.revert);
+			});
+
+			$(document).keydown(function (event) {
+				// close on ESC key
+				if (that.opened && event.keyCode === 27 && that.options.closeOnEscape) {
+					that.close(that.options.revert);
+				}
+
+				// OK on Enter key
+				if (that.opened && event.keyCode === 13 && that.options.okOnEnter) {
+					that.close();
+				}
+			});
+
+			// Close (with OK) on tab key in element
+			that.element.keydown(function (event) {
+				if (event.keyCode === 9) {
+					that.close();
+				}
+			}).keyup(function (event) {
+				var color = that._parseColor(that.element.val());
+				if (!that.color.equals(color)) {
+					that.color = color;
+					that._change();
+				}
+			});
+		},
+
+		_generate: function () {
+			var that = this,
+				index,
+				part,
+				parts_list,
+				layout_parts,
+				table,
+				classes;
+
+			that._setColor(that.inline || !that.element.is('input') ? that.options.color : that.element.val());
+
+			that[that.inline ? '_generateInline' : '_generatePopup']();
+
+			// Determine the parts to include in this colorpicker
+			if (typeof that.options.parts === 'string') {
+				if ($.colorpicker.partslists[that.options.parts]) {
+					parts_list = $.colorpicker.partslists[that.options.parts];
+				} else {
+					// automatic
+					parts_list = $.colorpicker.partslists[that.inline ? 'inline' : 'popup'];
+				}
+			} else {
+				parts_list = that.options.parts;
+			}
+
+			// Add any parts to the internal parts list
+			that.parts = {};
+			$.each(parts_list, function(index, part) {
+				if ($.colorpicker.parts[part]) {
+					that.parts[part] = new $.colorpicker.parts[part](that);
+				}
+			});
+
+			if (!that.generated) {
+				layout_parts = [];
+
+				$.each(that.options.layout, function(part, pos) {
+					if (that.parts[part]) {
+						layout_parts.push({
+							'part': part,
+							'pos':  pos
+						});
+					}
+				});
+
+				table = $(_layoutTable(layout_parts, function(cell, x, y) {
+					classes = ['ui-colorpicker-' + cell.part + '-container'];
+
+					if (x > 0) {
+						classes.push('ui-colorpicker-padding-left');
+					}
+
+					if (y > 0) {
+						classes.push('ui-colorpicker-padding-top');
+					}
+
+					return '<td  class="' + classes.join(' ') + '"'
+						+ (cell.pos[2] > 1 ? ' colspan="' + cell.pos[2] + '"' : '')
+						+ (cell.pos[3] > 1 ? ' rowspan="' + cell.pos[3] + '"' : '')
+						+ ' valign="top"></td>';
+				})).appendTo(that.dialog);
+				if (that.options.inlineFrame) {
+					table.addClass('ui-dialog-content ui-widget-content');
+				}
+
+				that._initAllParts();
+				that._updateAllParts();
+				that.generated = true;
+			}
+		},
+
+		_effectGeneric: function (element, show, slide, fade, callback) {
+			var that = this;
+
+			if ($.effects && $.effects[that.options.showAnim]) {
+				element[show](that.options.showAnim, that.options.showOptions, that.options.duration, callback);
+			} else {
+				element[(that.options.showAnim === 'slideDown' ?
+								slide
+							:	(that.options.showAnim === 'fadeIn' ?
+									fade
+								:	show))]((that.options.showAnim ? that.options.duration : null), callback);
+				if (!that.options.showAnim || !that.options.duration) {
+					callback();
+				}
+			}
+		},
+
+		_effectShow: function(element, callback) {
+			this._effectGeneric(element, 'show', 'slideDown', 'fadeIn', callback);
+		},
+
+		_effectHide: function(element, callback) {
+			this._effectGeneric(element, 'hide', 'slideUp', 'fadeOut', callback);
+		},
+
+		open: function() {
+			var that = this,
+				offset,
+				bottom, right,
+				height, width,
+				x, y,
+				zIndex,
+				hiddenPlaceholder;
+
+			if (!that.opened) {
+				that._generate();
+
+				if (that.element.is(':hidden')) {
+					hiddenPlaceholder = $('<div/>').insertBefore(that.element);
+					offset	= hiddenPlaceholder.offset();
+					hiddenPlaceholder.remove();
+				} else {
+					offset	= that.element.offset();
+				}
+				bottom	= $(window).height() + $(window).scrollTop();
+				right	= $(window).width() + $(window).scrollLeft();
+				height	= that.dialog.outerHeight(false);
+				width	= that.dialog.outerWidth();
+				x		= offset.left;
+				y		= offset.top + that.element.outerHeight(false);
+
+				if (x + width > right) {
+					x = Math.max(0, right - width);
+				}
+
+				if (y + height > bottom) {
+					if (offset.top - height >= $(window).scrollTop()) {
+						y = offset.top - height;
+					} else {
+						y = Math.max(0, bottom - height);
+					}
+				}
+
+				that.dialog.css({'left': x, 'top': y});
+
+				// Automatically find highest z-index.
+				zIndex = 0;
+				$(that.element[0]).parents().each(function() {
+					var z = $(this).css('z-index');
+					if ((typeof(z) === 'number' || typeof(z) === 'string') && z !== '' && !isNaN(z)) {
+						if (z > zIndex) {
+							zIndex = parseInt(z, 10);
+							return false;
+						}
+					}
+					else {
+						$(this).siblings().each(function() {
+							var z = $(this).css('z-index');
+							if ((typeof(z) === 'number' || typeof(z) === 'string') && z !== '' && !isNaN(z)) {
+								if (z > zIndex) {
+									zIndex = parseInt(z, 10);
+								}
+							}
+						});
+					}
+				});
+
+				// @todo zIndexOffset option, to raise above other elements?
+				that.dialog.css('z-index', zIndex += 2);
+
+				that.overlay = that.options.modal ? new $.ui.dialog.overlay(that) : null;
+				if (that.overlay !== null) {
+					var z = that.overlay.$el.css('z-index');
+					if ((typeof(z) === 'number' || typeof(z) === 'string') && z !== '' && !isNaN(z)) {
+						that.dialog.css('z-index', zIndex + z + 2);
+					}
+				}
+
+				that._effectShow(this.dialog);
+				that.opened = true;
+				that._callback('open', true);
+
+				// Without waiting for domready the width of the map is 0 and we
+				// wind up with the cursor stuck in the upper left corner
+				$(function() {
+					that._repaintAllParts();
+				});
+			}
+		},
+
+		close: function (cancel) {
+			var that = this;
+
+            if (cancel) {
+				that.color = that.currentColor.copy();
+                that._change();
+                that._callback('cancel', true);
+            } else {
+				that.currentColor	= that.color.copy();
+                that._callback('ok', true);
+            }
+			that.changed		= false;
+
+			// tear down the interface
+			that._effectHide(that.dialog, function () {
+				that.dialog.remove();
+				that.dialog	= null;
+				that.generated	= false;
+
+				that.opened		= false;
+				that._callback('close', true);
+			});
+
+			if (that.overlay) {
+				that.overlay.destroy();
+			}
+		},
+
+		destroy: function() {
+			this.element.unbind();
+
+			if (this.image !== null) {
+				this.image.remove();
+			}
+
+			if (this.button !== null) {
+				this.button.remove();
+			}
+
+			if (this.dialog !== null) {
+				this.dialog.remove();
+			}
+
+			if (this.overlay) {
+				this.overlay.destroy();
+			}
+		},
+
+		_callback: function (callback, spaces) {
+			var that = this,
+				data,
+				lab;
+
+			if (that.color.set) {
+				data = {
+					formatted: that._formatColor(that.options.colorFormat, that.color),
+					colorPicker: that
+				};
+
+				lab = that.color.getLAB();
+				lab.a = (lab.a * 2) - 1;
+				lab.b = (lab.b * 2) - 1;
+
+				if (spaces === true) {
+					data.a		= that.color.getAlpha();
+					data.rgb	= that.color.getRGB();
+					data.hsv	= that.color.getHSV();
+					data.cmyk	= that.color.getCMYK();
+					data.hsl	= that.color.getHSL();
+					data.lab	= lab;
+				}
+
+				return that._trigger(callback, null, data);
+			} else {
+				return that._trigger(callback, null, {
+					formatted: '',
+					colorPicker: that
+				});
+			}
+		},
+
+		_initAllParts: function () {
+			$.each(this.parts, function (index, part) {
+				if (part.init) {
+					part.init();
+				}
+			});
+		},
+
+		_updateAllParts: function () {
+			$.each(this.parts, function (index, part) {
+				if (part.update) {
+					part.update();
+				}
+			});
+		},
+
+		_repaintAllParts: function () {
+			$.each(this.parts, function (index, part) {
+				if (part.repaint) {
+					part.repaint();
+				}
+			});
+		},
+
+		_change: function () {
+			this.changed = true;
+
+			// Limit color palette
+			if (this.options.limit && $.colorpicker.limits[this.options.limit]) {
+				$.colorpicker.limits[this.options.limit](this.color, this);
+			}
+
+			// update input element content
+			if (!this.inline) {
+				if (!this.color.set) {
+					this.element.val('');
+				} else if (!this.color.equals(this._parseColor(this.element.val()))) {
+					this.element.val(this._formatColor(this.options.colorFormat, this.color));
+				}
+
+				this._setImageBackground();
+				this._setAltField();
+			}
+
+			// update color option
+			this.options.color = this.color.set ? this.color.toCSS() : '';
+
+			if (this.opened) {
+				this._repaintAllParts();
+			}
+
+			// callback
+			this._callback('select');
+		},
+
+		// This will be deprecated by jQueryUI 1.9 widget
+		_hoverable: function (e) {
+			e.hover(function () {
+				e.addClass("ui-state-hover");
+			}, function () {
+				e.removeClass("ui-state-hover");
+			});
+		},
+
+		// This will be deprecated by jQueryUI 1.9 widget
+		_focusable: function (e) {
+			e.focus(function () {
+				e.addClass("ui-state-focus");
+			}).blur(function () {
+				e.removeClass("ui-state-focus");
+			});
+		},
+
+		_getRegional: function(name) {
+			return $.colorpicker.regional[this.options.regional][name] !== undefined ?
+				$.colorpicker.regional[this.options.regional][name] : $.colorpicker.regional[''][name];
+        },
+
+		_getSwatches: function() {
+			if (typeof(this.options.swatches) === 'string') {
+				return $.colorpicker.swatches[this.options.swatches];
+			}
+
+			if ($.isPlainObject(this.options.swatches)) {
+				return this.colorpicker.swatches;
+			}
+
+			return $.colorpicker.swatches.html;
+		},
+
+		_eachSwatch: function (callback) {
+			var currentSwatches = this._getSwatches();
+			var name;
+			$.each(currentSwatches, function (nameOrIndex, swatch) {
+				if ($.isArray(currentSwatches)) {
+					name = swatch.name;
+				} else {
+					name = nameOrIndex;
+				}
+				callback(name, swatch);
+			});
+		},
+
+		_getSwatch: function(name) {
+			var swatch = false;
+
+			this._eachSwatch(function(swatchName, current) {
+				if (swatchName.toLowerCase() == name.toLowerCase()) {
+					swatch = current;
+					return false;
+				}
+				return true;
+			});
+
+			return swatch;
+        },
+
+        _parseColor: function(color) {
+            var that = this,
+				c;
+
+			$.each($.colorpicker.parsers, function(name, parser) {
+				c = parser(color, that);
+				if (c) {
+					return false;
+				}
+			});
+
+			if (c) {
+				return c;
+			}
+
+			return new $.colorpicker.Color();
+        },
+
+		_exactName: function(color) {
+			var name	= false;
+
+			this._eachSwatch(function(n, swatch) {
+				if (color.equals(new $.colorpicker.Color(swatch.r, swatch.g, swatch.b))) {
+					name = n;
+					return false;
+				}
+				return true;
+			});
+
+			return name;
+		},
+
+		_closestName: function(color) {
+			var rgb			= color.getRGB(),
+				distance	= null,
+				name		= false,
+				d;
+
+			this._eachSwatch(function(n, swatch) {
+				d = color.distance(new $.colorpicker.Color(swatch.r, swatch.g, swatch.b));
+				if (d < distance || distance === null) {
+					name = n;
+					if (d === 0) {
+						return false;	// can't get much closer than 0
+					}
+					distance = d;
+				}
+				return true;
+			});
+
+			return name;
+		},
+
+		_formatColor: function (formats, color) {
+			var that		= this,
+				text		= null,
+				types		= {	'x':	function(v) {return _intToHex(v * 255);}
+							,	'd':	function(v) {return Math.floor(v * 255);}
+							,	'f':	function(v) {return v;}
+							,	'p':	function(v) {return v * 100;}
+							},
+				channels	= color.getChannels();
+
+			if (!$.isArray(formats)) {
+				formats = [formats];
+			}
+
+			$.each(formats, function(index, format) {
+				if ($.colorpicker.writers[format]) {
+					text = $.colorpicker.writers[format](color, that);
+					return (text === false);
+				} else {
+					text = format.replace(/\\?[argbhsvcmykLAB][xdfp]/g, function(m) {
+						if (m.match(/^\\/)) {
+							return m.slice(1);
+						}
+						return types[m.charAt(1)](channels[m.charAt(0)]);
+					});
+					return false;
+				}
+			});
+
+			return text;
+		}
+	});
+}(jQuery));
+;
 $.extend({
     keys:    function(obj){
         var a = [];
@@ -10997,8 +17742,9 @@ var viewFactory = (function() {
         , nameMap = {
             'border-radius': 'stylePx'
             , 'border-width': 'stylePx'
+            , 'font-size': 'stylePx'
             , 'border-color': 'color'
-            , 'background': 'color'
+            , 'background-color': 'color'
         }
     ;
 
@@ -11067,6 +17813,9 @@ var viewFactory = (function() {
             if(self.option.max) {
                 sliderOpt.max = self.option.max;
             }
+            if(self.option.min) {
+                sliderOpt.min = self.option.min;
+            }
 
             self.element = $('<div>').slider(sliderOpt);
         }
@@ -11075,9 +17824,40 @@ var viewFactory = (function() {
     views.color = {
         setEvents: function() {
             var self = this;
+
+            self.element.on('change', $.proxy(self.changeInput, self));
+        },
+        changeInput: function(ev) {
+            var
+                self = this
+                , value = $(ev.target).val()
+            ;
+
+            if(!value) {
+                self.element.val(self.option.defaultValue);
+                self.element.trigger('change');
+            } else {
+                self.option.setValue(value)
+            }
+
+            self.changeData();
         },
         create: function() {
-            var self = this;
+            var
+                self = this
+                , cpOpts = {
+                    parts: ['map', 'bar', 'rgb']
+                    , colorFormat: '#HEX'
+                    , part: {
+                        map: { size: 128 },
+                        bar: { size: 128 }
+                    }
+                    , select: $.proxy(self.changeInput, this)
+                    , init: $.proxy(self.changeInput, this)
+                }
+            ;
+
+            self.element = $('<input>').val(self.option.value).colorpicker(cpOpts);
         }
     }
 
@@ -11159,6 +17939,10 @@ var
 
 listOptions.text = new Option('text', 'Текст', false, 'button');
 
+listOptions.fSize = new Option('font-size', 'Размер', false, 24);
+listOptions.fSize.max = 48;
+listOptions.fSize.min = 1;
+
 listOptions.bRadius = new Option('border-radius', 'Закругленность', false, 5);
 listOptions.bRadius.max = 20;
 
@@ -11166,8 +17950,8 @@ listOptions.bSize = new Option('border-width', 'Толщина рамки', fals
 listOptions.bSize.max = 50;
 
 listOptions.bColor = new Option('border-color', 'Цвет рамки', false, '#000');
-listOptions.color = new Option('color', 'Цвет ссылки', false, '#fff');
-listOptions.background = new Option('background', 'Цвет фона', false, '#f7f7f7');
+listOptions.color = new Option('color', 'Цвет ссылки', false, '#000');
+listOptions.background = new Option('background-color', 'Цвет фона', false, '#fff');
 
 listOptions.bShadow = new Option('box-shadow', 'Тень', ['webkit', 'moz'], {
     inset: '',

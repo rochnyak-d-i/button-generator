@@ -1,8 +1,9 @@
 {
-	"name": "button generator",
-	"version": "0.0.1",
-	"authors": [{"name": "Rochnyak Dmitriy Igorevich"}],
-	"dependencies": {
-		"jquery-ui": "latest"
-	}
+    "name": "button generator",
+    "version": "0.0.1",
+    "authors": [{"name": "Rochnyak Dmitriy Igorevich"}],
+    "dependencies": {
+        "jquery-ui": "latest",
+        "jquery.colorpicker": "latest"
+    }
 }

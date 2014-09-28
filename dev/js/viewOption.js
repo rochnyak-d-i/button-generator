@@ -6,8 +6,9 @@ var viewFactory = (function() {
         , nameMap = {
             'border-radius': 'stylePx'
             , 'border-width': 'stylePx'
+            , 'font-size': 'stylePx'
             , 'border-color': 'color'
-            , 'background': 'color'
+            , 'background-color': 'color'
         }
     ;
 
@@ -76,6 +77,9 @@ var viewFactory = (function() {
             if(self.option.max) {
                 sliderOpt.max = self.option.max;
             }
+            if(self.option.min) {
+                sliderOpt.min = self.option.min;
+            }
 
             self.element = $('<div>').slider(sliderOpt);
         }
@@ -84,9 +88,40 @@ var viewFactory = (function() {
     views.color = {
         setEvents: function() {
             var self = this;
+
+            self.element.on('change', $.proxy(self.changeInput, self));
+        },
+        changeInput: function(ev) {
+            var
+                self = this
+                , value = $(ev.target).val()
+            ;
+
+            if(!value) {
+                self.element.val(self.option.defaultValue);
+                self.element.trigger('change');
+            } else {
+                self.option.setValue(value)
+            }
+
+            self.changeData();
         },
         create: function() {
-            var self = this;
+            var
+                self = this
+                , cpOpts = {
+                    parts: ['map', 'bar', 'rgb']
+                    , colorFormat: '#HEX'
+                    , part: {
+                        map: { size: 128 },
+                        bar: { size: 128 }
+                    }
+                    , select: $.proxy(self.changeInput, this)
+                    , init: $.proxy(self.changeInput, this)
+                }
+            ;
+
+            self.element = $('<input>').val(self.option.value).colorpicker(cpOpts);
         }
     }
 

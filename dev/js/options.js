@@ -5,6 +5,10 @@ var
 
 listOptions.text = new Option('text', 'Текст', false, 'button');
 
+listOptions.fSize = new Option('font-size', 'Размер', false, 24);
+listOptions.fSize.max = 48;
+listOptions.fSize.min = 1;
+
 listOptions.bRadius = new Option('border-radius', 'Закругленность', false, 5);
 listOptions.bRadius.max = 20;
 
@@ -12,8 +16,8 @@ listOptions.bSize = new Option('border-width', 'Толщина рамки', fals
 listOptions.bSize.max = 50;
 
 listOptions.bColor = new Option('border-color', 'Цвет рамки', false, '#000');
-listOptions.color = new Option('color', 'Цвет ссылки', false, '#fff');
-listOptions.background = new Option('background', 'Цвет фона', false, '#f7f7f7');
+listOptions.color = new Option('color', 'Цвет ссылки', false, '#000');
+listOptions.background = new Option('background-color', 'Цвет фона', false, '#fff');
 
 listOptions.bShadow = new Option('box-shadow', 'Тень', ['webkit', 'moz'], {
     inset: '',
